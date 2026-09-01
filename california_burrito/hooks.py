@@ -155,21 +155,13 @@ app_license = "mit"
 # Scheduled Tasks
 # ---------------
 
+# Disabled by default, per docs/DocType_Spec.md section 7: the core PM loop
+# (Program -> Schedule -> Execution -> next Schedule) must work correctly with this
+# job disabled, so the demo doesn't depend on a background worker firing on schedule.
+# Uncomment to enable the daily Scheduled/Due -> Overdue flip.
 # scheduler_events = {
-# 	"all": [
-# 		"california_burrito.tasks.all"
-# 	],
 # 	"daily": [
-# 		"california_burrito.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"california_burrito.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"california_burrito.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"california_burrito.tasks.monthly"
+# 		"california_burrito.tasks.mark_overdue_schedules"
 # 	],
 # }
 

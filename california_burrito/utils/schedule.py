@@ -11,7 +11,7 @@ sample. A new Asset or Outlet becomes eligible the moment it exists.
 """
 
 import frappe
-from frappe.utils import getdate
+from frappe.utils import getdate, today
 
 
 def build_generation_key(program, outlet, asset, due_date):
@@ -66,3 +66,31 @@ def find_applicable_targets(program):
 		(o.name, None)
 		for o in frappe.get_all("CB Outlet", filters={"status": "Active"}, fields=["name"])
 	]
+
+
+def schedule_new_asset(asset):
+	"""CB Asset.after_insert: the inverse direction of find_applicable_targets — given
+	one new asset, find every active PM Program whose asset_type matches it, and
+	ensure_schedule for this one asset. Skips a non-Active asset (e.g. one created
+	Under Repair) entirely — there's nothing to schedule yet.
+	"""
+	if asset.status != "Active":
+		return
+	program_names = frappe.get_all(
+		"CB PM Program", filters={"asset_type": asset.asset_type, "active": 1}, pluck="name"
+	)
+	for program_name in program_names:
+		ensure_schedule(program_name, asset.outlet, asset.name, today())
+
+
+def schedule_new_outlet(outlet):
+	"""CB Outlet.after_insert: given one new outlet, find every active outlet-level PM
+	Program (asset_type is blank), and ensure_schedule for this one outlet.
+	"""
+	if outlet.status != "Active":
+		return
+	program_names = frappe.get_all(
+		"CB PM Program", filters={"asset_type": ["is", "not set"], "active": 1}, pluck="name"
+	)
+	for program_name in program_names:
+		ensure_schedule(program_name, outlet.name, None, today())

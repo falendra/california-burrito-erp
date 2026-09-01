@@ -296,13 +296,20 @@ and their parent Schedule/Ticket, not browsed by raw ID.
   `department|category|sub_category_1|sub_category_2`, `unique: 1`) — same
   compound-uniqueness pattern as `program_key`/`generation_key`, since the spec states
   a 4-field unique constraint but Frappe has no native way to declare one directly.
-  `autoname: hash` (no single natural field); left without a `title_field` for the
-  same reason as PM Schedule/Execution, but added `search_fields` (all four columns)
-  so the Link dropdown on `CB Ticket.ticket_taxonomy` is at least searchable across
-  them — flagging this because unlike Schedule/Execution, a taxonomy IS picked by
-  hand constantly when raising a ticket, so a raw-hash dropdown is a bigger real UX
-  cost here; I didn't build anything more than `search_fields` since it wasn't asked
-  for this phase, but wanted you to see the tradeoff rather than have it slide by.
+  `autoname: hash` (no single natural field). **Update, addressed after Phase 4:**
+  the flagged raw-hash UX cost turned out to matter in practice — the hash showed up
+  both in the `ticket_taxonomy` Link dropdown and on the saved `CB Ticket` form.
+  Added a hidden, system-generated `taxonomy_label` field (`before_save`,
+  `" / ".join` over department/category/sub_category_1/sub_category_2, skipping
+  blanks — e.g. `sub_category_2` when empty), set `"title_field":
+  "taxonomy_label"`. Recomputed on every save (not `before_insert`-only like
+  `taxonomy_key`), since this is a live display value that should track edits, not a
+  birth-time identity. Backfilled the one existing PM-failure taxonomy row so
+  `TKT-00001` picks it up retroactively — confirmed via `get_title()` (returns
+  `"Maintenance / Preventive Maintenance / PM Failure"`, not the hash) and by
+  resolving `TKT-00001.ticket_taxonomy` directly to the same label. Kept
+  `search_fields` too — label handles display, search_fields still helps typing
+  partial matches when picking one.
 - **CB Ticket** — `outlet`, `asset` (optional), `ticket_taxonomy`, `description`,
   `priority` (Low/Medium/High, default Medium), `status` (Open/Assigned/In
   Progress/Resolved/Closed/Cancelled, default Open), `assigned_to`,
@@ -383,14 +390,97 @@ california_burrito.tests.test_pm_ticket_workflow.TestPMTicketWorkflow
 ```
 
 ## Phase 4 — Applicability hooks
-- [ ] Test 3 passes (new asset → auto schedule)
-- [ ] New outlet → outlet-level programs auto-scheduled
-- [ ] Daily scheduled job: `CB PM Schedule` where `due_date < today` and status in
+- [x] Test 3 passes (new asset → auto schedule)
+- [x] New outlet → outlet-level programs auto-scheduled
+- [x] Daily scheduled job: `CB PM Schedule` where `due_date < today` and status in
       (Scheduled, Due) → status = Overdue (`docs/DocType_Spec.md` section 7; disabled by
       default, core PM loop must work without it running)
-- [ ] Hero scenario manually verified (new outlet + 3 assets → correct partial PM coverage)
-- Status:
-- Blockers:
+- [x] Hero scenario manually verified (new outlet + 3 assets → correct partial PM coverage)
+- Status: Done. `bench --site development.localhost run-tests --app california_burrito` →
+  **10/10 passing** (tests 1, 2, 3, 4, 5, 6, 7, 8, plus two extra hook tests not among the
+  8 numbered ones). `bench migrate` clean. Hero scenario run against the real site and
+  passed every assertion — left in place as persistent demo data (see below).
+- Blockers: none.
+
+### What was created
+- `california_burrito/utils/schedule.py` — two new functions, the inverse direction of
+  `find_applicable_targets`: given one new Asset/Outlet, find the matching Programs
+  (rather than given one Program, find the matching targets).
+  - `schedule_new_asset(asset)` — finds every **active** PM Program whose
+    `asset_type` matches the asset's, `ensure_schedule`s each for this one asset.
+    Skips a non-Active asset entirely (nothing to schedule yet).
+  - `schedule_new_outlet(outlet)` — finds every **active** outlet-level PM Program
+    (`asset_type` blank), `ensure_schedule`s each for this one outlet. Skips a
+    non-Active outlet.
+  - Both filter on `CB PM Program.active` explicitly — `find_applicable_targets`
+    doesn't, because callers already have a specific program in hand (a promise the
+    caller keeps), but these two functions are the ones *choosing* which programs
+    apply, so they own that filter.
+  - Due date for a newly-created target: `frappe.utils.today()`, matching the same
+    "today (or a sensible first-due date)" convention as initial seeding.
+- `CB Asset.after_insert` → `schedule_new_asset(self)`; `CB Outlet.after_insert` →
+  `schedule_new_outlet(self)`. Controllers stay thin — all the logic lives in
+  `utils/schedule.py`, per `CLAUDE.md`'s hard rule.
+- `california_burrito/tasks.py` — `mark_overdue_schedules()`, a single
+  `frappe.db.set_value` bulk update (`due_date < today` and status in
+  `(Scheduled, Due)` → `Overdue`) — deliberately the *only* thing it does, per spec.
+  Uses `frappe.db.set_value` with a filter dict specifically because it does a bulk
+  SQL `UPDATE` without invoking Document events/hooks, which is exactly the "nothing
+  else" behaviour the spec asks for. Wired into `hooks.py`'s `scheduler_events` as a
+  commented-out `"daily"` entry — **disabled by default**, per spec ("the core PM
+  loop works correctly with this job disabled — useful for demoing without depending
+  on background workers firing on schedule"). Uncomment to enable.
+- Verified `mark_overdue_schedules()` directly (it's disabled by default, so nothing
+  exercises it automatically): a past-due `Scheduled` row flips to `Overdue`; a
+  future-due `Scheduled` row is untouched; a past-due but already-`Completed` row is
+  untouched (terminal state respected, matching "Overdue is terminal until executed"
+  — well, the reverse: Completed is terminal too, the job must never resurrect it).
+  Used throwaway probe records, deleted immediately after.
+
+### Tests
+`california_burrito/tests/test_applicability_hooks.py` — test 3, plus two more not
+among the 8 numbered acceptance tests but worth having given what this phase adds:
+- `test_3_new_asset_auto_schedules_matching_program` — a new Air Conditioner asset
+  at BLR001 gets a schedule for the existing AC Program via `after_insert`.
+- `test_new_asset_of_non_matching_type_gets_no_schedule` — a new asset of a type no
+  Program targets gets nothing. Proves the hook is scoped, not blanket.
+- `test_new_outlet_auto_schedules_outlet_level_programs` — satisfies the checklist
+  item explicitly: a fresh outlet-level Program + a fresh Outlet → one schedule via
+  `CB Outlet.after_insert`; and that new outlet must *not* pick up the existing
+  asset-type-scoped AC Program (proves the two hooks stay in their own lane).
+Confirmed no leakage into persistent data after the run (same check as every prior
+phase).
+
+### Hero scenario — run for real, left in place as demo data
+Ran directly against the site (not a rolled-back test) via the same one-off
+`%run`-then-delete script pattern used for fixture seeding, since this *is* the demo,
+not a regression check:
+- Added two new Asset Types, **Freezer** and **Fryer** — a documented assumption,
+  not from any import data (ASSIGNMENT.md names "fryers" as real equipment; Freezer
+  added purely to give a second non-matching type). No PM Program targets either.
+- Created Outlet **BLR134** — `CB Outlet.after_insert` fired, correctly created
+  nothing (no outlet-level Programs exist).
+- Created three Assets at BLR134: `AST-00003` (Air Conditioner), `AST-00004`
+  (Freezer), `AST-00005` (Fryer). Result: **exactly one** `CB PM Schedule` row,
+  for `AST-00003` against the existing AC Program — confirmed by querying all
+  schedules at the outlet and asserting the count and which asset. Freezer and
+  Fryer correctly got nothing. This is the "correct and partial, not blanket"
+  requirement, demonstrated on real data, not asserted in the abstract.
+- Added one demo Technician (`DEMO-TECH-01`) — needed to perform the execution;
+  another small, clearly-labeled fixture addition, not from import data.
+  Submitted a `CB PM Execution` against the AC-134 schedule with `result = Failed`.
+  Confirmed atomically: schedule → `Completed`, next schedule created
+  (due `2026-10-01`, status `Scheduled`), `CB Ticket TKT-00001` created
+  (`outlet=BLR134`, `asset=AST-00003`, `source_pm_execution` set,
+  `status=Open`), and `execution.generated_ticket = TKT-00001`.
+- This is the first real `CB Ticket` the system has ever created (TKT-00001) — a
+  good sign the naming series and the whole failed-PM-to-ticket path work
+  end-to-end on a scenario that looks like the actual walkthrough this system will
+  be demoed with.
+- Re-ran the full test suite after this (10/10 still passing) to confirm the
+  persistent hero-scenario data doesn't interfere with anything — test 2's
+  "applies to every active outlet" assertion in particular is written against the
+  live outlet count specifically so additions like BLR134 can't break it.
 
 ## Phase 5 — Import
 - [ ] Asset alias normalization table built

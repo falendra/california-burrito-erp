@@ -9,7 +9,8 @@
   "category",
   "sub_category_1",
   "sub_category_2",
-  "taxonomy_key"
+  "taxonomy_key",
+  "taxonomy_label"
  ],
  "fields": [
   {
@@ -49,6 +50,14 @@
    "read_only": 1,
    "reqd": 1,
    "unique": 1
+  },
+  {
+   "description": "Computed in before_save from (Department, Category, Sub Category 1, Sub Category 2) — a readable label so this doctype's autoname hash never shows up in list views or Link dropdowns. System-generated, not user-editable.",
+   "fieldname": "taxonomy_label",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Taxonomy Label",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
@@ -75,5 +84,6 @@
  "search_fields": "department,category,sub_category_1,sub_category_2",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "title_field": "taxonomy_label"
 }
