@@ -1,0 +1,96 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-09-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "pm_program",
+  "outlet",
+  "asset",
+  "due_date",
+  "status",
+  "generation_key"
+ ],
+ "fields": [
+  {
+   "fieldname": "pm_program",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "PM Program",
+   "options": "CB PM Program",
+   "reqd": 1
+  },
+  {
+   "fieldname": "outlet",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Outlet",
+   "options": "CB Outlet",
+   "reqd": 1
+  },
+  {
+   "description": "Required if the linked PM Program has an Asset Type set; must be blank if it doesn't. Enforced in validate().",
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Asset",
+   "options": "CB Asset"
+  },
+  {
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Due Date",
+   "reqd": 1
+  },
+  {
+   "default": "Scheduled",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Scheduled\nDue\nOverdue\nCompleted\nCancelled",
+   "reqd": 1
+  },
+  {
+   "description": "Computed in before_insert: pm_program|outlet|asset|due_date. The actual idempotency guard — Frappe has no native compound unique constraint.",
+   "fieldname": "generation_key",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Generation Key",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "California Burrito",
+ "name": "CB PM Schedule",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

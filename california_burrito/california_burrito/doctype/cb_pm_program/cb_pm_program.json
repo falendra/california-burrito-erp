@@ -1,0 +1,92 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-09-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "program_name",
+  "asset_type",
+  "task_description",
+  "frequency",
+  "active",
+  "program_key"
+ ],
+ "fields": [
+  {
+   "description": "Human label — not the identity. Logical uniqueness is (Asset Type, Task Description, Frequency), enforced via Program Key below.",
+   "fieldname": "program_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Program Name",
+   "reqd": 1
+  },
+  {
+   "description": "Blank = outlet-level program, applies to every active Outlet (e.g. pest control, deep clean). Set = equipment-level, applies to every active Asset of this type.",
+   "fieldname": "asset_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Asset Type",
+   "options": "CB Asset Type"
+  },
+  {
+   "fieldname": "task_description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Task Description",
+   "reqd": 1
+  },
+  {
+   "fieldname": "frequency",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Frequency",
+   "options": "Weekly\nMonthly\nQuarterly\n6 Monthly\nYearly",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Active",
+   "reqd": 1
+  },
+  {
+   "description": "Computed in before_insert from (Asset Type, Task Description, Frequency) — the real logical-uniqueness key for this doctype.",
+   "fieldname": "program_key",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Program Key",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "California Burrito",
+ "name": "CB PM Program",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -155,14 +155,117 @@ member dies. Fix: relaunch `bench start` fresh — it then picks up the installe
 `bench get-app` / `bench install-app`, not just after `bench migrate`.
 
 ## Phase 2 — PM engine (fixture data only)
-- [ ] CB PM Program, CB PM Schedule, CB PM Execution created
-- [ ] `ensure_schedule()` implemented in `utils/schedule.py`
-- [ ] Test 1 passes (asset applicability — matching asset type only)
-- [ ] Test 2 passes (outlet-level applicability — all outlets)
-- [ ] Test 4 passes (execution → next schedule)
-- [ ] Test 5 passes (late execution doesn't cause drift)
-- Status:
-- Blockers:
+- [x] CB PM Program, CB PM Schedule, CB PM Execution created
+- [x] `ensure_schedule()` implemented in `utils/schedule.py`
+- [x] Test 1 passes (asset applicability — matching asset type only)
+- [x] Test 2 passes (outlet-level applicability — all outlets)
+- [x] Test 4 passes (execution → next schedule)
+- [x] Test 5 passes (late execution doesn't cause drift)
+- Status: Done. `bench --site development.localhost run-tests --app california_burrito` →
+  **4/4 passing** (tests 1, 2, 4, 5). `bench migrate` clean, no errors.
+- Blockers: none.
+
+### What was created
+- **CB PM Program** — `program_name` (Data, human label — not the identity),
+  `asset_type` (Link, blank = outlet-level), `task_description`, `frequency` (Select:
+  Weekly/Monthly/Quarterly/6 Monthly/Yearly), `active`, and hidden `program_key`
+  (computed in `before_insert` from `asset_type|task_description|frequency`, `unique: 1`)
+  — the real logical-uniqueness key per `docs/DocType_Spec.md` section 6.
+- **CB PM Schedule** — `pm_program`, `outlet`, `asset` (conditional — required iff
+  `pm_program.asset_type` is set, enforced in `validate()`, along with the
+  cross-outlet check: `asset.outlet` must equal `schedule.outlet`), `due_date`,
+  `status` (Scheduled/Due/Overdue/Completed/Cancelled), and hidden `generation_key`
+  (`before_insert`, `f"{pm_program}|{outlet}|{asset or ''}|{due_date}"`, `unique: 1`).
+  Composite indexes `(outlet, status, due_date)` and `(asset, status)` added via the
+  standard Frappe `on_doctype_update()` + `frappe.db.add_index()` hook (there's no
+  DocType-JSON way to declare a multi-column index directly).
+- **CB PM Execution** — submittable (`is_submittable: 1`, so Frappe auto-adds
+  `amended_from`), `pm_schedule`, `performed_by` (Link → CB Technician),
+  `completed_on` (default Today), `result` (Passed/Failed/Skipped), `notes`.
+  **`generated_ticket` (Link → CB Ticket) is deliberately not yet in this JSON** —
+  Frappe's `DocType.validate()` hard-rejects a Link field whose `options` names a
+  DocType that doesn't exist yet (`WrongOptionsDoctypeLinkError`, confirmed by reading
+  `frappe/core/doctype/doctype/doctype.py`), and `CB Ticket` doesn't exist until
+  Phase 3. Adding it now would have blocked `bench migrate` entirely. This is the
+  build order's own sequencing (`docs/DocType_Spec.md`'s build sequence explicitly
+  does Program→Schedule→Execution before the Ticket path) forcing the field to land
+  in Phase 3 alongside `CB Ticket` itself — flagging it here so it isn't mistaken for
+  an oversight.
+- `california_burrito/utils/schedule.py` — `build_generation_key`, `ensure_schedule`,
+  `find_applicable_targets`, matching `docs/DocType_Spec.md`'s pseudocode close to
+  verbatim (one addition: `ensure_schedule` normalizes `due_date` through
+  `frappe.utils.getdate()` before building the key, so a `date` object and an
+  equivalent `"YYYY-MM-DD"` string can't silently produce two different keys for what
+  should be the same occurrence).
+- `california_burrito/utils/recurrence.py` — `next_due_date(due_date, frequency)`,
+  using `frappe.utils.add_days/add_months/add_years` (calendar-correct, handles
+  month-end correctly) rather than fixed day counts. Weekly=+7d, Monthly=+1mo,
+  Quarterly=+3mo, 6 Monthly=+6mo, Yearly=+1yr.
+- `CB PM Execution.on_submit` implements steps 1–4 of the spec's mechanism (validate
+  the schedule isn't already `Completed` — guards a race between two executions
+  targeting the same schedule, distinct from Frappe's own single-submission guard on
+  the execution document itself; mark schedule `Completed`; compute `next_due` from
+  `schedule.due_date` — never `completed_on`; `ensure_schedule` the next occurrence
+  regardless of Passed/Failed/Skipped). Step 5 (Failed → create CB Ticket) is a
+  comment marker for Phase 3, not implemented yet.
+- Fixture addition (persistent, via the same one-off `%run`-then-delete script
+  pattern as Phase 1 — nothing added to real source data): one CB PM Program,
+  **Air Conditioner / Clean filter / Monthly**, at outlet BLR001's existing asset mix.
+
+### Tests
+Real `frappe.tests.IntegrationTestCase` tests (`bench run-tests`, not manual checks),
+in `california_burrito/tests/` — deliberately **not** inside any doctype's own folder.
+Frappe auto-derives a `doctype` class attribute from a test module's path when it sits
+inside a `.../doctype/<name>/` folder, which triggers automatic test-record generation
+for that doctype and its dependencies (`make_test_records`) — machinery I don't want
+here since every scenario needs exact, deliberately-chosen data. Placing them in a
+plain `tests/` package (still discovered fine — `bench run-tests` globs `**/test_*.py`
+across the whole app) avoids that entirely.
+- `test_pm_schedule_applicability.py` — tests 1 and 2. Test 1 runs against the real
+  persistent fixture (BLR001, AST-00001/AST-00002, the AC/Clean-filter/Monthly
+  Program), adding one extra transient AC asset so "applies to every matching asset,
+  not just one" is actually exercised (the fixture only seeds one). Also asserts
+  idempotent generation (calling `ensure_schedule` twice for the same target/date
+  doesn't create a second row) — not one of the 8 numbered acceptance tests, but
+  explicitly called out in the build order as something this step must prove. Test 2
+  is self-contained (creates 3 fresh outlets) since outlet-level "applies to every
+  outlet" can't be meaningfully proven against a fixture with only one outlet; it
+  asserts against `frappe.db.count("CB Outlet", {"status": "Active"})` rather than a
+  literal "3", which is a stronger check — it proves the function tracks the live
+  outlet universe rather than a fixed set.
+- `test_pm_execution_recurrence.py` — tests 4 and 5, against the same persistent
+  fixture Program/Outlet/Asset, each with its own due_date so the two tests don't
+  share a schedule regardless of run order.
+- Confirmed after the run that nothing leaked into persistent data: `CB Outlet` still
+  shows only `BLR001`, `CB Technician` and `CB PM Schedule` are empty, `CB Asset`
+  still shows exactly `AST-00001`/`AST-00002` — Frappe's test infrastructure wraps the
+  whole run in a transaction it rolls back at the end, so the fixture rows (already
+  committed in a prior process) are untouched and everything the tests create during
+  the run disappears with it.
+- Needed one one-time site setting to run tests at all:
+  `bench --site development.localhost set-config allow_tests true`.
+
+### Gotcha hit and self-corrected: doctype folder nesting depth
+Created the 3 new doctype folders one directory level too shallow at first
+(`california_burrito/california_burrito/doctype/` instead of
+`california_burrito/california_burrito/california_burrito/doctype/` — this app's
+module folder happens to share its name with the package, since Phase 1 renamed the
+module to match the app name, which makes the correct depth easy to miscount).
+`bench migrate` silently didn't pick up the new doctypes at all (no error, they just
+didn't sync) because the scan path is module-specific. Caught it by checking
+`frappe.get_all("DocType", filters={"module": "California Burrito"})` and finding
+only 5 names instead of 8. Overcorrected next: moved `utils/` and `tests/` (plain
+Python packages, not Frappe doctype/report/page containers) into that same
+module-folder depth too, which is wrong for them — they belong directly under the
+top-level package alongside `hooks.py`, not inside the module folder that only holds
+`doctype/`. Fixed by checking actual import resolution
+(`ModuleNotFoundError: No module named 'california_burrito.utils'` inside the
+container) and moving them back one level. Final structure, confirmed correct via
+`bench migrate` running clean:
+```
+california_burrito/california_burrito/          <- top-level package (hooks.py, modules.txt, tests/, utils/)
+california_burrito/california_burrito/california_burrito/doctype/   <- the "California Burrito" module's doctypes
+```
 
 ## Phase 3 — Ticket workflow
 - [ ] CB Ticket Taxonomy, CB Ticket created
