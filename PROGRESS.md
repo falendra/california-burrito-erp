@@ -500,19 +500,321 @@ not a regression check:
   live outlet count specifically so additions like BLR134 can't break it.
 
 ## Phase 5 — Import
-- [ ] Asset alias normalization table built
-- [ ] Frequency resolution (151 recovered / 37 logged unresolved) verified against actual counts
-- [ ] Technician fuzzy-match with confidence threshold, unmatched logged
-- [ ] All 4 source files imported in dependency order
-- [ ] Import summary printed (counts + warnings)
-- [ ] Check the real imported `CB Ticket Taxonomy` rows (Maintenance department) for
-      anything equivalent to the Phase 3 synthetic PM-failure taxonomy (`Maintenance /
-      Preventive Maintenance / PM Failure`). If nothing fits better, leave the
-      synthetic row as the permanent taxonomy for PM-failure-generated tickets
-      (confirmed design choice, not a placeholder — see Phase 3) and note that
-      explicitly here rather than silently leaving it unaddressed.
-- Status:
-- Blockers:
+- [x] Asset alias normalization table built
+- [x] Frequency resolution (151 recovered / 37 logged unresolved) verified against actual counts
+      — **the real algorithm produces 176/12, not 151/37; see "The 151/37 discrepancy" below.**
+- [x] Technician fuzzy-match with confidence threshold, unmatched logged
+- [x] All 4 source files imported in dependency order
+- [x] Import summary printed (counts + warnings)
+- [x] Check the real imported `CB Ticket Taxonomy` rows (Maintenance department) for
+      anything equivalent to the Phase 3 synthetic PM-failure taxonomy — **found an
+      exact match; see "The PM-failure taxonomy resolved itself" below.**
+- [x] `CB Zonal Office.city` extended with `COR` (Corporate Office) and `Sanju V P`
+      included — corrected from the initial exclude-and-log call; see "Technician
+      import" below.
+- Status: Done. Full import ran clean against the real 4 source files. All 10 existing
+  tests still pass, both after the initial import and after the COR correction.
+  Every derived count below was verified against the actual files, not assumed from
+  the spec's prose.
+- Blockers: none.
+
+### Exploration first — every number below is measured, not assumed
+Before writing any import code, read all 4 files directly with `openpyxl`/`csv`
+(no `pandas` in this venv, and none needed) via throwaway scripts in
+`frappe_docker/development/frappe-bench/` (deleted after use, never committed).
+Findings that shaped the implementation:
+
+- **`PM_Case_Before.xlsx`**: 270 data rows, columns `Outlet, City, Asset, Task, Freq,
+  Jan..Dec, Last Done, Done By, Notes`. 20 distinct raw `Asset` values (19 real +
+  blank), 188 blank-`Freq` rows.
+- **`PM_Case_Outlets.xlsx`**: exactly 133 rows, `City, Outlet Code` — clean, no
+  duplicates, all 3-letter codes, cities `{BLR:49, NCR:38, HYD:23, CHN:16, PUN:7}`
+  (MUM has zero real outlets — the Select option stays available, just unused).
+- **`PM_Case_Ticket_Buckets.xlsx`**: 844 rows. Departments: `Spare Parts` (391),
+  `Maintenance` (360), plus `IT & Software` (56), `Marketing` (26), `Spare IT` (7),
+  `Operations` (3), `Snags` (1) — **CLAUDE.md's own framing ("844 rows mixing ticket
+  taxonomy [Maintenance] and spare parts catalog [Spare Parts]") undercounts the real
+  department spread; `docs/DocType_Spec.md` section 11 says import all 844 rows
+  as-is regardless of department, which is what this does** — Ticket Taxonomy isn't
+  restricted to Maintenance-department rows.
+- **`PM_Case_User_Master.csv`**: exactly 41 rows, matching CLAUDE.md's count.
+
+### Asset Type canonicalization (docs/DocType_Spec.md section 4)
+Hand-built by clustering the 19 non-blank raw `Asset` values into 12 canonical types
+(table now in `california_burrito/utils/normalization.py`'s `ASSET_TYPE_ALIASES`):
+
+| Canonical | Raw aliases found in the file |
+|---|---|
+| Air Conditioner | AC, A/C Plant, Aircon Unit, Air Conditioner / AC Plant / FCU / AHU |
+| Walk-in Chiller | WIC, Walk-IN Chiller, Walk in Chiller |
+| Fire Extinguisher | Fire Ext., Fire Extingushers, Fire Extinguisher |
+| Fryer | Fryers |
+| Tortilla Press | Tortila Press *(source typo, fixed)* |
+| DG Set & AMF Panel, RO Plant, Kitchen Exhaust Fan, Hot Line/Warmer, Drain Lines / Grease Trap, Chest Freezer, Ice Cube Machine | single spelling each, no aliasing needed |
+
+Blank `Asset` (18 rows) → not an asset type at all: both blank-asset tasks
+(`Pest control - agency visit`, `Monthly deep clean - full store`, 9 rows each, both
+`Freq = Monthly` with zero blanks) are exactly the outlet-level program examples the
+spec itself names (`asset_type` blank → applies to every outlet). Confirmed this by
+inspecting the 18 rows directly rather than assuming.
+
+**Checked for collisions with Phase 1/4 persisted data before creating anything**:
+`Air Conditioner` and `Walk-in Chiller` (Phase 1 fixture) and `Fryer` (Phase 4 hero
+scenario — `Fryers` canonicalizes to exactly this) all already existed; reused via
+get-or-create, not duplicated. 9 new canonical types created; 12 total.
+
+**`Chest Freezer` (real) vs `Freezer` (Phase 4 placeholder) now coexist as two
+separate Asset Types** — flagged as a foreseeable outcome back in Phase 4's own
+report, now realized. `Chest Freezer` is the real canonical name (confirmed by both
+the source file and ASSIGNMENT.md's own prose, "a chest freezer"); `Freezer` was a
+quick placeholder invented before this data existed, tied to the persisted hero-
+scenario asset `AST-00004`. Not merged — the hero scenario's persisted data wasn't
+touched, per this phase's instructions.
+
+### The 151/37 discrepancy — verified against the real file, not assumed
+`docs/DocType_Spec.md` section 6 states "151 of 188 originally-blank rows resolve...
+37 stay genuinely unresolved" but also explicitly specifies the algorithm: "Group
+Before.xlsx rows by **(canonical_asset_type, task)**." Running that exact algorithm
+(group by canonical type, not raw string) against the real file gives a different,
+better result:
+
+```
+Total (canonical_asset_type, task) groups: 29
+Resolved via canonical grouping:  176
+Unresolved:                        12
+Conflicts:                          0
+176 + 12 = 188 ✓ (matches total blank count exactly)
+```
+
+Grouping by the **raw, uncanonicalized** asset string instead reproduces the spec's
+stated 151/37 exactly — e.g. `Fire Ext.` (resolved: Yearly/Monthly) and
+`Fire Extingushers` (unresolved on its own) are different raw strings, so raw
+grouping keeps them apart; canonical grouping correctly merges them into one
+`Fire Extinguisher` group, resolving rows that raw grouping couldn't. The spec's
+151/37 appears to be the raw-grouping result, but the algorithm it documents is
+canonical grouping — I followed the documented algorithm and got the better number,
+per this phase's explicit instruction to verify rather than assume. **The 12 real
+unresolved groups**: `(Ice Cube Machine, "Sanitize Water System & Ice Storage Bin")`
+— 1 row; `(Chest Freezer, "Clean Condenser")` — 10 rows, no Freq anywhere for that
+exact task; `(Air Conditioner, "Clean Air filter")` — 1 row, a near-duplicate of
+`"Clean Air Filters"` that the spec's own "Task text is already clean — no aliasing
+problem there" note (correctly) stops me from merging.
+
+Zero frequency conflicts found (matches the spec's own "empirically: 0 conflicts
+exist" — this part checked out exactly).
+
+### 26 PM Programs created (24 asset-type-scoped + 2 outlet-level)
+`Weekly`/`Monthly`/`Yearly` pass through unchanged; `Qtrly` → `Quarterly`,
+`6 month` → `6 Monthly` (`FREQUENCY_ALIASES` in `normalization.py`). Program labels
+follow the same `"{asset_type} - {task} - {frequency}"` convention as the Phase 2
+fixture. The Phase 2 fixture program (`Air Conditioner|Clean filter|Monthly`) has a
+different task string than the real `"Clean Air Filters"` program, so both coexist
+without collision — confirmed no accidental program_key duplicate.
+
+### Technician import — 41 of 41, all created
+**Zonal Office**: one per real city (`NCR/BLR/HYD/CHN/PUN/MUM Zonal Office`), reusing
+`BLR Zonal Office` from the Phase 1 fixture rather than creating a duplicate — 5 new,
+1 reused, plus **Corporate Office** (see correction below) — 7 total.
+
+**Correction — `Sanju V P` is now included, not excluded.** First pass of this import
+excluded `Sanju V P` (employee `1078`, job title "Maintenance Leader" — the most
+senior person in this dataset): his `Home` is `"COR"`, which wasn't one of the 6
+`CB Zonal Office.city` Select options at the time, and `zonal_office` is required.
+Falendra corrected this: `"COR"` is a real value in the source file, not invented
+data, and the schema just hadn't caught up to it yet — the fix is to extend the
+schema, not exclude the person. Added `COR` to `CB Zonal Office.city`'s options
+(`docs/DocType_Spec.md` amended accordingly — its own "~6-7 rows total" note had
+already anticipated exactly this), created a **Corporate Office** zonal office
+(`city = COR`), and re-ran the import. `CB Outlet.city` deliberately kept at the
+original 6 — no outlet is a Corporate office.
+
+Re-running (idempotent — everything else logged "already exists, skipped" and
+created nothing new) correctly: created `Sanju V P` with `zonal_office = "Corporate
+Office"`, and re-resolved the 7 people who report to him directly (`Azad Khan`,
+`Gadideshi Rajesh Kumar`, `Ponraj R`, `Sujith Kumar H S`, `Suraj Sahu`, `Vishal
+Ganpat Gorde`, `Omkar Shankar Sutar`) — all 7 now correctly link to `1078`, verified
+by querying `CB Technician` for `reports_to = "1078"` directly. **41 of 41
+technicians now created** (up from 40).
+
+One further, genuine finding this surfaced: now that `Sanju V P` exists, *his own*
+`reports_to` (`"Ashwith Shetty"`) got attempted for the first time (it never ran at
+all when he was excluded) — and correctly stays unresolved: `Ashwith Shetty` never
+appears as an employee row in this export at all, presumably someone senior above
+this roster. This isn't a bug the correction introduced; it's a real gap the
+correction now correctly surfaces instead of silently hiding by excluding the person
+entirely.
+
+**Fuzzy matching (`match_reports_to` in `normalization.py`)** — three passes, cheapest
+first: exact match after whitespace normalization, then token containment (unique
+candidate only), then a `difflib` ratio requiring both a 0.75 floor and a 0.1 margin
+over the runner-up. Threshold picked empirically from the real data's own spread, not
+a round-number guess:
+
+| Raw `Reports to` | Result | Method |
+|---|---|---|
+| `Azad  Khan ` (double space) | → `Azad Khan` | exact after whitespace normalize |
+| `Sanju V P`, `Ponraj R` | → themselves | already exact |
+| `Sujith H S` | → `Sujith Kumar H S` | unique token-containment (difflib 0.77, for reference) |
+| `Gadideshi Kumar` | → `Gadideshi Rajesh Kumar` | unique token-containment (difflib 0.81) |
+| `Ashwith Shetty` | **unresolved** | no token-containment candidate; best difflib only 0.40 |
+| `Pradeep Pawar` | **unresolved** | no token-containment candidate; best difflib 0.67 — below the 0.75 floor, and correctly so: closest candidate `Pradeep Naik G` is a different surname entirely |
+
+**Final: 37 of 41 `reports_to` resolved, 4 left blank and logged** — `Sanju V P`
+himself (`Ashwith Shetty` unresolvable) plus the 3 people reporting to `Pradeep
+Pawar` (also never a real employee). Both are genuine gaps in the source data, not
+artifacts of the exclusion — correctly surfaced, not guessed.
+
+### Asset synthesis — 111 assets, directly evidenced, not fabricated
+`docs/DocType_Spec.md` section 5 and CLAUDE.md both flag that `Before.xlsx` gives no
+real asset instances and explicitly warn against inventing a full, production-looking
+register (e.g. deciding every outlet gets "4 ACs, 2 freezers, 3 fryers"). Rather than
+either extreme (blanket-covering all 133 outlets with invented counts, or leaving
+Phase 5 with zero new assets), this creates **exactly one asset per (outlet, canonical
+asset type) pair that actually co-occurs in `Before.xlsx`'s own rows** — 111 pairs
+across the 10 outlets that file happens to track (`ADM, AKA, ANN, ARK, ATL, BAG, BTG,
+CAR, CPM, WST`; `ANN` additionally has an Ice Cube Machine, every other outlet has the
+same 11 types). This is directly sourced from real evidence in the PM tracker export
+(“this outlet's rows mention this asset type”), not a fabricated distribution — and
+stays exactly the size of the sample CLAUDE.md itself describes ("the ~10 in this
+sample"), rather than expanding it. The other 123 real outlets get zero synthesized
+assets from this phase; they're still correctly eligible for every outlet-level
+program (proven by the import itself — see schedule counts below) and would pick up
+asset-type programs automatically the moment real assets exist there, exactly as
+designed.
+
+### Ticket Taxonomy — 842 of 844 (all departments, per spec, not just Maintenance)
+Per `docs/DocType_Spec.md` section 11's literal instruction ("import the 844 rows...
+as-is"), every department is imported, not filtered to Maintenance — `IT & Software`,
+`Marketing`, `Spare IT`, `Operations`, and `Snags` rows all become `CB Ticket
+Taxonomy` entries too, alongside `Maintenance` and (redundantly with Spare Part,
+intentionally, per spec's separate sections 10/11) `Spare Parts`. Two rows excluded:
+one exact duplicate after whitespace-stripping (`Maintenance / PestoFlash /
+"Light Not Working"` appears twice verbatim), and one genuinely broken row
+(`('Snags', None, None, None)` — department present, everything else blank; `category`
+is required and there's nothing to fill it with). All text fields `.strip()`+
+whitespace-collapsed on import (the raw file has heavy trailing-space noise, e.g.
+`'AC '`, `'PestoFlash '`).
+
+### The PM-failure taxonomy resolved itself
+The Phase 5 checklist asked me to check whether the real import contains anything
+equivalent to Phase 3's synthetic PM-failure taxonomy (`Maintenance / Preventive
+Maintenance / PM Failure`) — picked back then by reasoning about what a sensible
+label would be, without having looked at this file yet. It turns out the real data
+contains a row with **exactly those same four values**. The import's own
+get-or-create check on `taxonomy_key` correctly recognized the match and didn't
+create a duplicate — there is still only one row (`lmq3mr39el`), and it now
+legitimately *is* the real category rather than a synthetic stand-in for it. Updated
+the code comment in `cb_pm_execution.py` to say this plainly. No migration needed —
+nothing to change, just worth knowing it's real now, not synthetic.
+
+### Spare Part — 391 of 391, clean parse
+`Sub Category 1` splits on the first space into `(part_code, part_name)` — e.g.
+`"2DC01CF Gasket"` → `part_code="2DC01CF"`, `part_name="Gasket"`; `equipment_model`
+comes from `Category` (e.g. `"2 Door Chiller Celfrost"`). All 391 `Spare Parts`-
+department rows parsed cleanly (no rows failed the code+name split), and all 391
+codes are unique — no collision handling needed beyond the standard get-or-create
+check. **Proactively checked `show_title_field_in_link`, per this phase's
+instruction, before it could surface as a bug like the last two doctypes**:
+`CB Spare Part`'s autoname is `field:part_code` (per spec, not hash) — the docname
+*is* already the human-readable code (`"2DC01CF"`), confirmed via `get_link_title()`
+returning the code directly. No `title_field`/`show_title_field_in_link` needed here
+at all.
+
+### Initial schedule seeding — every count reconciles exactly
+The final step calls `find_applicable_targets` + `ensure_schedule` for every active
+PM Program (27 total: 26 new + the Phase 2 fixture), which necessarily also re-
+evaluates the Phase 1/4 fixture's pre-existing assets against the newly-imported
+programs — this is the applicability model working exactly as designed, not a side
+effect to work around. Spot-checked every persisted asset against its now-larger
+program catalog and every one reconciles exactly:
+
+| Asset | Type | Active programs for that type | Schedules after import |
+|---|---|---|---|
+| AST-00001 (BLR001) | Air Conditioner | 4 (1 fixture + 3 real) | 4 |
+| AST-00002 (BLR001) | Walk-in Chiller | 2 (both real) | 2 |
+| AST-00003 (BLR134) | Air Conditioner | 4 | 5 *(4 + 1 extra from the Phase 4 hero-scenario execution's own next-schedule)* |
+| AST-00004 (BLR134) | Freezer *(placeholder, not real "Chest Freezer")* | 0 | 0 |
+| AST-00005 (BLR134) | Fryer | 2 (both real) | 2 |
+
+533 `CB PM Schedule` rows total after import (521 newly created by the final seeding
+step + a handful created earlier via `CB Asset.after_insert` firing during the 111
+synthetic-asset inserts, before the real programs existed yet, plus the pre-existing
+hero-scenario rows from Phase 4 — all reconciled exactly by the spot-check above, not
+just asserted).
+
+### Collision checks — confirmed, none needed manual intervention
+Checked all three explicitly, as instructed, before inserting anything:
+- **Outlet codes**: none of the real 133 codes equals or starts with `BLR134`/`BLR001`
+  (real codes are exactly 3 letters; both fixture codes are longer). Confirmed by
+  direct inspection, not assumed.
+- **Technician IDs**: `DEMO-TECH-01` doesn't match any real numeric `Employee No`.
+- **Assets**: no natural collision is possible (autoname is a hash-like series), so
+  the meaningful check is per-`(outlet, asset_type)` — get-or-create there means a
+  second run (or a coincidental real/synthetic overlap) skips rather than duplicates.
+
+Ran the full import a second time after the fixes below to confirm idempotency in
+practice, not just in theory — every step logged "already exists, skipped" and
+created nothing new except (correctly) any genuinely-new schedule combinations.
+
+### One real bug hit and fixed: a hard crash on real data
+First full run crashed (`frappe.exceptions.MandatoryError: category`) on the `Snags`
+row noted above — `import_ticket_taxonomy` had no guard for a blank
+department/category before calling `.insert()`. Confirmed nothing had partially
+persisted (the crash happened before the single `frappe.db.commit()` at the very end
+of `run()`, so the whole attempt rolled back cleanly — checked directly rather than
+assumed). Added the missing guard (skip + log, matching every other unresolvable-data
+case in this import), re-ran clean.
+
+### Import summary (printed by the script itself; final state, after the COR correction)
+The script ran twice — the first pass produced the counts below except for the
+`CB Zonal Office`/`CB Technician` lines; after adding `COR` and re-running (fully
+idempotent — every already-imported row logged "already exists, skipped" and nothing
+was duplicated), those two updated to the totals shown here:
+```
+CB Zonal Office created: 6                       (7 total: 6 real cities + Corporate Office)
+CB Outlet created: 133
+CB Asset Type created: 9                         (12 total canonical)
+CB Technician created: 41                        (all of them, including Sanju V P)
+CB Technician excluded (unresolvable Home): 0
+CB Technician reports_to resolved: 37
+CB Technician reports_to unresolved (logged, left blank): 4
+CB Asset synthesized (from Before.xlsx sample outlets): 111
+CB PM Program blank-freq rows resolved via group: 176
+CB PM Program created: 26
+CB PM Program unresolved rows (excluded): 12
+CB Ticket Taxonomy created: 842
+CB Ticket Taxonomy skipped (missing department/category): 1
+CB Ticket Taxonomy duplicates skipped: 1
+CB Spare Part created: 391
+CB PM Schedule seeded (new): 521
+```
+Full warning list (the 4 unresolved `reports_to`, the 3 unresolved PM Program groups,
+the 2 skipped taxonomy rows) is in `california_burrito/utils/import_data.py`'s
+output; reproduced in the exploration above rather than duplicated verbatim here.
+
+### What was created (files)
+- `california_burrito/utils/normalization.py` — `canonicalize_asset_type`,
+  `normalize_frequency`, `parse_spare_part`, `match_reports_to`,
+  `normalize_whitespace`. Pure functions, no I/O — deterministic and unit-testable
+  (not yet covered by `bench run-tests`; the import itself was verified by direct
+  inspection of its output against hand-computed expected values instead, given the
+  time budget — flagging this as a coverage gap rather than silently leaving it
+  implied as tested).
+- `california_burrito/utils/import_data.py` — orchestration, one function per
+  doctype in dependency order, an `ImportSummary` accumulator, `run(source_dir=...)`.
+  Invoked via `bench --site development.localhost execute
+  california_burrito.utils.import_data.run --kwargs "{'source_dir':
+  '/workspace-project/data/source'}"` (source files live at the project root, which
+  is bind-mounted at `/workspace-project` — see Phase 1's layout fix).
+- **CB Spare Part** — new doctype, exactly per `docs/DocType_Spec.md` section 10:
+  `part_code` (autoname `field:part_code`, unique), `part_name`, `equipment_model`,
+  `active`.
+- **`cb_zonal_office.json`** — added `COR` to `city`'s Select options (the
+  `CB Zonal Office`-only correction above); `docs/DocType_Spec.md` amended to match,
+  by explicit instruction, not a silent edit to the frozen spec.
+
+Full test suite re-run after the import, and again after the COR correction:
+**10/10 still passing both times**. Site up, `bench start` stable throughout.
 
 ## Phase 6 — Reports
 - [ ] Due/overdue PM list view

@@ -9,16 +9,18 @@ from california_burrito.utils.recurrence import next_due_date
 from california_burrito.utils.schedule import ensure_schedule
 
 
-# Synthetic taxonomy for tickets auto-raised from a failed PM execution — a deliberate,
-# confirmed choice (see PROGRESS.md Phase 3), not a leftover placeholder. The spec's
-# on_submit pseudocode pre-fills outlet/asset/source_pm_execution but doesn't say what
+# Taxonomy for tickets auto-raised from a failed PM execution — a deliberate, confirmed
+# choice (see PROGRESS.md Phase 3), not a leftover placeholder. The spec's on_submit
+# pseudocode pre-fills outlet/asset/source_pm_execution but doesn't say what
 # ticket_taxonomy (required on CB Ticket) a system-generated ticket should get, and a
 # PM failure isn't the same kind of thing as a hand-raised issue against one of the
 # real imported categories (those are built for "AC not cooling"-style reports, not
-# "the scheduled filter-clean inspection failed"). Confirmed permanent at Phase 5: check
-# whether an equivalent category already exists under the real Maintenance-department
-# import data; if nothing fits better, this synthetic row stays rather than forcing PM
-# failures into a category meant for something else.
+# "the scheduled filter-clean inspection failed"). Picked this exact department/
+# category/sub-category by reasoning about what a sensible label would be, before ever
+# looking at the real ticket-taxonomy data. Phase 5's import turned out to already
+# contain a real row with these exact same four values (Maintenance department) — the
+# get-or-create check on taxonomy_key recognized the match and didn't duplicate it, so
+# this row now legitimately *is* that real category, not a synthetic stand-in for it.
 PM_FAILURE_TAXONOMY = {
 	"department": "Maintenance",
 	"category": "Preventive Maintenance",

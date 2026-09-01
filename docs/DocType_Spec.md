@@ -13,9 +13,16 @@ Technician → Asset → PM Program → Ticket Taxonomy → Spare Part → (seed
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | zonal_office_name | Data | Yes | Autoname: `field:zonal_office_name` |
-| city | Select | Yes | Options: NCR, BLR, HYD, CHN, PUN, MUM |
+| city | Select | Yes | Options: NCR, BLR, HYD, CHN, PUN, MUM, COR |
 
 No unique constraint beyond name. ~6-7 rows total, static.
+
+**Amended in Phase 5** (see `PROGRESS.md`): added `COR` (Corporate Office) after the
+real import turned up one technician — the most senior person in the roster — whose
+`Home` in `PM_Case_User_Master.csv` is `"COR"`, not one of the 6 store-serving
+zonal-office cities. This doctype's own "~6-7 rows total" note already anticipated
+exactly this. `CB Outlet.city` was deliberately left at the original 6 — no real
+outlet has city `COR`, only zonal offices need it.
 
 ---
 
@@ -24,7 +31,7 @@ No unique constraint beyond name. ~6-7 rows total, static.
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | outlet_code | Data | Yes | Autoname: `field:outlet_code`. Unique (3-letter code from source file) |
-| city | Select | Yes | Same option set as Zonal Office |
+| city | Select | Yes | Same 6 store-serving cities as Zonal Office (NCR, BLR, HYD, CHN, PUN, MUM) — not the `COR` option added there in Phase 5; no outlet is a Corporate office |
 | zonal_office | Link → CB Zonal Office | Yes | Derive from `city` on import (one zonal office per city in source data) |
 | status | Select | Yes | Options: Active, Inactive. Default: Active |
 
@@ -118,11 +125,15 @@ Group Before.xlsx rows by (canonical_asset_type, task)
 For each group:
     if all non-blank Freq values agree → create PM Program with that frequency
     if Freq values conflict → do not create; log as ambiguous (empirically: 0 conflicts exist)
-    if no Freq value found anywhere in the group → do not create; log as unresolved (37 rows)
+    if no Freq value found anywhere in the group → do not create; log as unresolved
 ```
-151 of 188 originally-blank rows resolve via another row in the same group; 37 stay genuinely
-unresolved — exclude them from `PM Program` creation, list them in the import summary. Don't
-build a review-status workflow for 37 rows.
+Grouping by **canonical** asset type (not the raw, unaliased `Asset` string) resolves 176 of
+188 originally-blank rows via another row in the same group; 12 stay genuinely unresolved.
+(An earlier pass of this analysis grouped by the raw string before the alias table existed,
+giving 151/37 — that number is stale now that canonicalization runs first, per the algorithm
+above. Verified independently against the real file: 176/12/0-conflicts.) Exclude the 12
+unresolved groups from `PM Program` creation, list them in the import summary. Don't build a
+review-status workflow for them.
 
 **Note:** the raw `Before.xlsx` rows are used only to *derive* these Program definitions (task +
 frequency per asset type). They are never used to decide which outlets/assets a Program applies
@@ -352,7 +363,7 @@ instead of the one real bug.
   `Ticket Taxonomy` doctype, imported flat.
 - A 90-day rolling-horizon schedule generator — replaced with execution-driven "create next
   occurrence on submit," which needs no generator loop at all.
-- Manual-review workflow for unresolved frequencies — 37 rows, logged in the import summary,
-  not modeled as a status.
+- Manual-review workflow for unresolved frequencies — 12 rows (see section 6's correction),
+  logged in the import summary, not modeled as a status.
 - Spare-part recommendation engine — simple text match + user confirmation.
 - Any of: microservices, Kafka, Kubernetes, event sourcing, CQRS, custom RBAC/scheduler/admin UI.

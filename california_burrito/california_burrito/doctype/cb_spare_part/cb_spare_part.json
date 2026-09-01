@@ -1,30 +1,46 @@
 {
  "actions": [],
- "autoname": "field:zonal_office_name",
+ "autoname": "field:part_code",
  "creation": "2026-09-01 00:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "zonal_office_name",
-  "city"
+  "part_code",
+  "part_name",
+  "equipment_model",
+  "active"
  ],
  "fields": [
   {
-   "fieldname": "zonal_office_name",
+   "fieldname": "part_code",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Zonal Office Name",
+   "label": "Part Code",
    "reqd": 1,
    "unique": 1
   },
   {
-   "description": "COR added in Phase 5 (see PROGRESS.md): PM_Case_User_Master.csv has one real technician (the most senior in the roster) with Home = \"COR\" (Corporate Office), not one of the 6 store-serving city zonal offices.",
-   "fieldname": "city",
-   "fieldtype": "Select",
+   "fieldname": "part_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Part Name",
+   "reqd": 1
+  },
+  {
+   "description": "e.g. \"2 Door Chiller Celfrost\" — matches CB Asset.model.",
+   "fieldname": "equipment_model",
+   "fieldtype": "Data",
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "label": "City",
-   "options": "NCR\nBLR\nHYD\nCHN\nPUN\nMUM\nCOR",
+   "label": "Equipment Model",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Active",
    "reqd": 1
   }
  ],
@@ -33,7 +49,7 @@
  "modified": "2026-09-01 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "California Burrito",
- "name": "CB Zonal Office",
+ "name": "CB Spare Part",
  "owner": "Administrator",
  "permissions": [
   {
