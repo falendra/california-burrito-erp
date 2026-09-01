@@ -4,3 +4,8 @@ __MACOSX/
 __pycache__/
 .env
 site_config.json
+
+# Phase 0: local Frappe dev environment (frappe_docker clone + bench + vendored
+# frappe framework + node_modules + DB data). This repo ships the custom app only —
+# not stock Frappe. Re-created by following PROGRESS.md's Phase 0 section.
+frappe_docker/
