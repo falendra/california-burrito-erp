@@ -1,0 +1,116 @@
+{
+ "actions": [],
+ "autoname": "TKT-.#####",
+ "creation": "2026-09-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "outlet",
+  "asset",
+  "ticket_taxonomy",
+  "description",
+  "priority",
+  "status",
+  "assigned_to",
+  "source_pm_execution",
+  "resolved_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "outlet",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Outlet",
+   "options": "CB Outlet",
+   "reqd": 1
+  },
+  {
+   "description": "Optional — same reasoning as PM Schedule: blank when the issue isn't specific to one piece of equipment.",
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Asset",
+   "options": "CB Asset"
+  },
+  {
+   "fieldname": "ticket_taxonomy",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Ticket Taxonomy",
+   "options": "CB Ticket Taxonomy",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "default": "Medium",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Priority",
+   "options": "Low\nMedium\nHigh",
+   "reqd": 1
+  },
+  {
+   "default": "Open",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Open\nAssigned\nIn Progress\nResolved\nClosed\nCancelled",
+   "reqd": 1
+  },
+  {
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Assigned To",
+   "options": "CB Technician"
+  },
+  {
+   "description": "Set automatically when this ticket is raised from a failed PM Execution.",
+   "fieldname": "source_pm_execution",
+   "fieldtype": "Link",
+   "label": "Source PM Execution",
+   "options": "CB PM Execution",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolved_on",
+   "fieldtype": "Date",
+   "label": "Resolved On"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "California Burrito",
+ "name": "CB Ticket",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

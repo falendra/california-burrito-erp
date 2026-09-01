@@ -9,7 +9,8 @@
   "performed_by",
   "completed_on",
   "result",
-  "notes"
+  "notes",
+  "generated_ticket"
  ],
  "fields": [
   {
@@ -51,6 +52,14 @@
    "fieldname": "notes",
    "fieldtype": "Small Text",
    "label": "Notes"
+  },
+  {
+   "description": "Auto-set if Result = Failed and a ticket is created.",
+   "fieldname": "generated_ticket",
+   "fieldtype": "Link",
+   "label": "Generated Ticket",
+   "options": "CB Ticket",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,

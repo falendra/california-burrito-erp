@@ -267,17 +267,127 @@ california_burrito/california_burrito/          <- top-level package (hooks.py, 
 california_burrito/california_burrito/california_burrito/doctype/   <- the "California Burrito" module's doctypes
 ```
 
+### Post-Phase-2 fix: title fields
+`CB PM Program`'s list view and Link-field dropdowns were showing the raw autoname
+hash (e.g. `dtnj60ort6`) instead of a readable label. Added `"title_field":
+"program_name"` to `cb_pm_program.json`. Confirmed via `doc.get_title()` (the exact
+method the desk UI calls for list rows, Link dropdowns, and breadcrumbs) — now
+returns `"Air Conditioner - Clean Filter - Monthly"` instead of the hash. Checked
+`CB PM Schedule` and `CB PM Execution` too (both also `autoname: hash`) — neither
+has a single field that reads as a genuine label (Schedule is inherently a
+outlet/program/date triple; Execution's fields don't collapse into one meaningful
+string either), and manufacturing one would mean adding a field purely for
+cosmetics. Left both without a `title_field` — they're reached through report views
+and their parent Schedule/Ticket, not browsed by raw ID.
+
 ## Phase 3 — Ticket workflow
-- [ ] CB Ticket Taxonomy, CB Ticket created
-- [ ] Test 6 passes (failed execution → ticket, atomic)
-- [ ] Test 7 passes (duplicate submit rejected)
-- [ ] Test 8 passes (cross-outlet asset validation)
-- Status:
-- Blockers:
+- [x] CB Ticket Taxonomy, CB Ticket created
+- [x] Test 6 passes (failed execution → ticket, atomic)
+- [x] Test 7 passes (duplicate submit rejected)
+- [x] Test 8 passes (cross-outlet asset validation)
+- Status: Done. `bench --site development.localhost run-tests --app california_burrito` →
+  **7/7 passing** (tests 1, 2, 4, 5, 6, 7, 8 — everything except test 3, which is Phase 4).
+  `bench migrate` clean, no errors.
+- Blockers: none.
+
+### What was created
+- **CB Ticket Taxonomy** — `department`, `category`, `sub_category_1`,
+  `sub_category_2`, plus hidden `taxonomy_key` (`before_insert`,
+  `department|category|sub_category_1|sub_category_2`, `unique: 1`) — same
+  compound-uniqueness pattern as `program_key`/`generation_key`, since the spec states
+  a 4-field unique constraint but Frappe has no native way to declare one directly.
+  `autoname: hash` (no single natural field); left without a `title_field` for the
+  same reason as PM Schedule/Execution, but added `search_fields` (all four columns)
+  so the Link dropdown on `CB Ticket.ticket_taxonomy` is at least searchable across
+  them — flagging this because unlike Schedule/Execution, a taxonomy IS picked by
+  hand constantly when raising a ticket, so a raw-hash dropdown is a bigger real UX
+  cost here; I didn't build anything more than `search_fields` since it wasn't asked
+  for this phase, but wanted you to see the tradeoff rather than have it slide by.
+- **CB Ticket** — `outlet`, `asset` (optional), `ticket_taxonomy`, `description`,
+  `priority` (Low/Medium/High, default Medium), `status` (Open/Assigned/In
+  Progress/Resolved/Closed/Cancelled, default Open), `assigned_to`,
+  `source_pm_execution` (read-only, set automatically), `resolved_on`. Not
+  submittable, per spec (status needs to move backward). **`suggested_spare_part`
+  (Link → CB Spare Part) is deliberately not in this JSON** — same
+  `WrongOptionsDoctypeLinkError` constraint as `generated_ticket` in Phase 2:
+  `CB Spare Part` doesn't exist yet, and the spare-part-suggestion logic + doctype
+  weren't asked for in this phase's scope either. Indexes `(outlet, status)` and
+  `(assigned_to, status)` via `on_doctype_update()`.
+- **Autoname assumption:** the spec's field table has no explicit autoname note for
+  CB Ticket (same silence as PM Schedule). Chose a naming series (`TKT-.#####`,
+  matching CB Asset's `AST-.#####` convention) rather than a hash — tickets are
+  human-referenced constantly ("ticket TKT-00042"), unlike Schedule/Execution/
+  Program/Taxonomy records, so a readable sequential ID earns its keep here. This is
+  the kind of naming-series-format judgment call `CLAUDE.md`'s Working Style section
+  explicitly delegates to me rather than something to stop and ask about.
+- `generated_ticket` (Link → CB Ticket) added to `CB PM Execution`, now that
+  `CB Ticket` exists — the field deferred at the end of Phase 2 for exactly this
+  reason.
+- `CB PM Execution.on_submit` step 5 implemented: if `result == "Failed"`, create a
+  `CB Ticket` pre-filled with the schedule's `outlet`/`asset`, `source_pm_execution`
+  = this execution, then `self.db_set("generated_ticket", ticket.name)` (not a normal
+  save — the document is already submitted, and `db_set` is the standard Frappe way
+  to update a field on a submitted doc from inside its own `on_submit`). Runs inside
+  the same hook as steps 1–4, so it shares the same atomicity: any exception rolls
+  the whole submit back.
+- **ticket_taxonomy for auto-raised tickets — resolved, deliberate, permanent:** the
+  spec's on_submit pseudocode says to create a Ticket but doesn't say what
+  `ticket_taxonomy` (a required field) a *system*-generated ticket should get. Picked
+  the smallest reasonable default: every PM-failure-generated ticket gets one
+  well-known synthetic taxonomy row (`Maintenance / Preventive Maintenance / PM
+  Failure`, get-or-created on first use — see `PM_FAILURE_TAXONOMY` in
+  `cb_pm_execution.py`). **Confirmed by Falendra as a permanent design choice, not a
+  placeholder to revisit**: a PM-inspection failure isn't the same kind of thing as a
+  hand-raised issue against one of the real imported categories, so forcing it into
+  one of those would misrepresent the ticket. Phase 5 must still check whether an
+  equivalent category already exists under the real Maintenance-department import
+  data — if nothing fits better, this synthetic row stays as-is (see the Phase 5
+  checklist below).
+- **Double-submit guard, and a correction to my own Phase 2 comment:** I'd written in
+  Phase 2 that Frappe has "its own single-submission guard" separate from the
+  same-schedule race guard — that was wrong. Frappe actually treats a second
+  `submit()` call on an already-submitted document as a legitimate `docstatus 1 -> 1`
+  "update after submit" transition by default, not an automatic rejection (confirmed
+  by reading `check_docstatus_transition` in `frappe/model/document.py` — it's
+  explicitly listed as a valid transition, routed to a different hook,
+  `on_update_after_submit`, not `on_submit` again). Found this the hard way: test 7
+  failed on the first run with "DocstatusTransitionError not raised". Fixed by
+  implementing `on_update_after_submit()` to unconditionally reject — this doctype
+  has no fields meant to be edited after submission (`generated_ticket` is set via
+  `db_set`, which bypasses this hook entirely), so anything reaching this hook is a
+  duplicate-submission attempt.
+
+### Tests
+`california_burrito/tests/test_pm_ticket_workflow.py` — tests 6, 7, 8, same
+persistent-fixture-plus-what-each-scenario-needs approach as Phase 2's test files.
+Test 6 and 7 reuse BLR001/AST-00001/the AC Program (distinct due_dates so they don't
+share a schedule); test 8 creates its own second outlet (`T8HYDOUT`, city HYD, with a
+proper fresh HYD Zonal Office rather than reusing BLR's, for realism) since it needs
+an asset that genuinely belongs to a different outlet. Confirmed after the run that
+`CB Outlet` still shows only `BLR001` and `CB Ticket`/`CB Ticket Taxonomy` are empty —
+the test-created Ticket, its placeholder Taxonomy, and the second outlet all rolled
+back with the rest of the run's transaction.
+
+### Full picture: all 4 test files, 7/7 passing
+```
+california_burrito.tests.test_pm_schedule_applicability.TestPMScheduleApplicability
+  ✔ test_1_asset_type_program_applies_only_to_matching_assets
+  ✔ test_2_outlet_level_program_applies_to_every_active_outlet
+california_burrito.tests.test_pm_execution_recurrence.TestPMExecutionRecurrence
+  ✔ test_4_passed_execution_completes_schedule_and_creates_next
+  ✔ test_5_late_execution_does_not_drift_next_due_date
+california_burrito.tests.test_pm_ticket_workflow.TestPMTicketWorkflow
+  ✔ test_6_failed_execution_creates_ticket_atomically
+  ✔ test_7_duplicate_submit_rejected
+  ✔ test_8_cross_outlet_asset_rejected
+```
 
 ## Phase 4 — Applicability hooks
 - [ ] Test 3 passes (new asset → auto schedule)
 - [ ] New outlet → outlet-level programs auto-scheduled
+- [ ] Daily scheduled job: `CB PM Schedule` where `due_date < today` and status in
+      (Scheduled, Due) → status = Overdue (`docs/DocType_Spec.md` section 7; disabled by
+      default, core PM loop must work without it running)
 - [ ] Hero scenario manually verified (new outlet + 3 assets → correct partial PM coverage)
 - Status:
 - Blockers:
@@ -288,6 +398,12 @@ california_burrito/california_burrito/california_burrito/doctype/   <- the "Cali
 - [ ] Technician fuzzy-match with confidence threshold, unmatched logged
 - [ ] All 4 source files imported in dependency order
 - [ ] Import summary printed (counts + warnings)
+- [ ] Check the real imported `CB Ticket Taxonomy` rows (Maintenance department) for
+      anything equivalent to the Phase 3 synthetic PM-failure taxonomy (`Maintenance /
+      Preventive Maintenance / PM Failure`). If nothing fits better, leave the
+      synthetic row as the permanent taxonomy for PM-failure-generated tickets
+      (confirmed design choice, not a placeholder — see Phase 3) and note that
+      explicitly here rather than silently leaving it unaddressed.
 - Status:
 - Blockers:
 
