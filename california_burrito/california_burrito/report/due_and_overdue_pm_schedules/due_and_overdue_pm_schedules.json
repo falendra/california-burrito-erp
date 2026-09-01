@@ -1,0 +1,68 @@
+{
+ "add_total_row": 0,
+ "columns": [
+  {
+   "fieldname": "name",
+   "fieldtype": "Link",
+   "label": "Schedule",
+   "options": "CB PM Schedule",
+   "width": 140
+  },
+  {
+   "fieldname": "outlet",
+   "fieldtype": "Link",
+   "label": "Outlet",
+   "options": "CB Outlet",
+   "width": 100
+  },
+  {
+   "fieldname": "pm_program",
+   "fieldtype": "Data",
+   "label": "PM Program",
+   "width": 240
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "label": "Asset",
+   "options": "CB Asset",
+   "width": 110
+  },
+  {
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "label": "Due Date",
+   "width": 100
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status",
+   "width": 90
+  },
+  {
+   "fieldname": "days_overdue",
+   "fieldtype": "Int",
+   "label": "Days Overdue",
+   "width": 100
+  }
+ ],
+ "creation": "2026-09-01 00:00:00.000000",
+ "disabled": 0,
+ "doctype": "Report",
+ "is_standard": "Yes",
+ "modified": "2026-09-02 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "California Burrito",
+ "name": "Due and Overdue PM Schedules",
+ "owner": "Administrator",
+ "query": "SELECT\n\ts.name AS name,\n\ts.outlet AS outlet,\n\tp.program_name AS pm_program,\n\ts.asset AS asset,\n\ts.due_date AS due_date,\n\ts.status AS status,\n\tDATEDIFF(CURDATE(), s.due_date) AS days_overdue\nFROM `tabCB PM Schedule` s\nLEFT JOIN `tabCB PM Program` p ON p.name = s.pm_program\nWHERE s.status NOT IN ('Completed', 'Cancelled')\n\tAND s.due_date <= CURDATE()\nORDER BY s.due_date ASC",
+ "ref_doctype": "CB PM Schedule",
+ "report_name": "Due and Overdue PM Schedules",
+ "report_type": "Query Report",
+ "roles": [
+  {
+   "role": "System Manager"
+  }
+ ]
+}

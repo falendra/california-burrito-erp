@@ -817,9 +817,143 @@ Full test suite re-run after the import, and again after the COR correction:
 **10/10 still passing both times**. Site up, `bench start` stable throughout.
 
 ## Phase 6 — Reports
-- [ ] Due/overdue PM list view
-- [ ] Open tickets by outlet/technician
-- Status:
+- [x] Due/overdue PM list view
+- [x] Open tickets by outlet/technician
+- Status: Done. Both built as native Frappe `Report` doctype records (`report_type:
+  "Query Report"`), shipped as standard module reports (hand-authored JSON, synced via
+  `bench migrate` — same pattern as every DocType in this app), not custom dashboard
+  code. Verified against the real imported data through the actual API the desk UI
+  calls (`frappe.desk.query_report.run`), not just by reading the SQL. Full test suite
+  still 10/10 afterward.
+- Blockers: none.
+
+### What was created
+- **`Due and Overdue PM Schedules`** (`ref_doctype: CB PM Schedule`) —
+  `due_date <= CURDATE()` and `status NOT IN (Completed, Cancelled)`, sorted by
+  `due_date` ascending. Columns: Schedule, Outlet, PM Program, Asset, Due Date,
+  Status, and a computed `Days Overdue` (`DATEDIFF(CURDATE(), due_date)`).
+- **`Open Tickets by Outlet and Technician`** (`ref_doctype: CB Ticket`) —
+  `status NOT IN (Resolved, Closed, Cancelled)`, sorted by `outlet` then
+  `assigned_to`. Columns: Ticket, Outlet, Asset, Taxonomy, Priority, Status, Assigned
+  To, Source PM Execution.
+- Both `is_standard: "Yes"`, living at
+  `california_burrito/california_burrito/california_burrito/report/<name>/<name>.json`
+  — the same standard-module-file pattern as every doctype/page in this app, not the
+  fixtures-export mechanism, so they ship automatically with the app on any site
+  (including the Phase 7 deploy) via `bench migrate`, no manual per-site setup step.
+  `roles: [System Manager]`, matching every other permission in this app (no custom
+  RBAC, per CLAUDE.md).
+
+### Why Query Report, not Report Builder — and why the due/overdue filter isn't status-based
+See `docs/ASSUMPTIONS.md` (logged there directly, per the standing rule) for the full
+reasoning on two decisions this phase made:
+- Both reports use `report_type: "Query Report"` (a native Frappe report type, SQL in
+  a `query` field — not custom dashboard code) rather than `Report Builder`. A
+  Report Builder's saved filter stores a literal value, not a live expression, so it
+  can't express "due today or earlier" in a way that stays correct day after day.
+  Query Report's correctness is also directly verifiable by me (I can run the SQL and
+  the real execution API myself); a hand-authored Report Builder JSON blob can't be
+  visually confirmed without browser access, which this environment doesn't have.
+- The due/overdue report filters on `due_date`, not `status`, because **`status`'s
+  `Due` option is never set by any code path in this system** — the spec only ever
+  defines `Scheduled` → `Overdue` (the daily job) and `Scheduled`/`existing` →
+  `Completed` (execution submit); nothing transitions to `Due`. Building a
+  status-based report would also have shown **zero rows** in the current demo data
+  regardless: the daily job is disabled by default (per spec) and every currently
+  due-or-overdue schedule still shows `status = "Scheduled"`.
+
+### Verified against real data, not just technically present
+```
+Due and Overdue PM Schedules:        531 rows  (frappe.desk.query_report.run)
+Open Tickets by Outlet and Technician: 1 row   (frappe.desk.query_report.run)
+```
+Ran both through `frappe.desk.query_report.run(...)` — the exact backend function the
+desk UI's report view calls — not just the raw SQL, so column labels, Link-field
+handling, and permission checks are all exercised for real. Confirmed both reports
+are correctly linked to their `ref_doctype` and not disabled
+(`frappe.get_all("Report", filters={"ref_doctype": ...})`), which is what makes them
+appear in that doctype's native list-view "Switch To Report" dropdown — the
+discovery path a reviewer would actually use, not something requiring a bookmark or
+direct URL.
+
+**531 is a large number because of how Phase 5 seeded demo data, not a report bug**:
+almost every schedule was seeded with `due_date = today` (`2026-09-01`), so almost
+all of them are "due today" simultaneously — a real production system's due dates
+would be spread across the calendar. All 531 currently show `status = "Scheduled"`
+(none `Overdue`) since nothing in the persisted data has a `due_date` before today —
+confirmed by checking directly rather than assuming; didn't artificially backdate
+anything just to show an `Overdue` row in the demo, since that would be inventing
+data to make a screenshot look better.
+
+Full test suite re-run after adding both reports: **10/10 still passing**. Site up,
+`bench start` stable throughout.
+
+### Post-Phase-6 fix #1: PM Program (and Ticket Taxonomy) columns showed raw hashes
+Falendra confirmed via screenshot: `Due and Overdue PM Schedules`' PM Program column
+showed the raw hash (`dtnj60ort6`), not the readable name, despite `CB PM Program`
+having `title_field`/`show_title_field_in_link` set. Root cause, confirmed by reading
+the frontend's report-rendering code (`get_linked_doctypes()` in
+`query_report.js` — only used for the opt-in "add column" feature, not automatic
+rendering): a Query Report's SQL just returns whatever a column selects; the
+Link-widget title-resolution machinery (`get_link_title`) never runs on a report
+grid at all. Also affected `Open Tickets by Outlet and Technician`'s Taxonomy column
+for the identical reason. Fixed both: `LEFT JOIN`ed the target doctype in the SQL and
+selected its readable field directly (`CB PM Program.program_name`,
+`CB Ticket Taxonomy.taxonomy_label`), changing those columns' `fieldtype` from `Link`
+to `Data` (a `Link`-typed column holding a label instead of the real docname would
+route to the wrong place if clicked). `source_pm_execution` in the ticket report was
+deliberately left as a raw-hash `Link` — `CB PM Execution` has no `title_field` by
+design (Phase 2), so there's no better label to substitute. Logged in
+`docs/ASSUMPTIONS.md` directly, per the standing rule.
+
+**That fix silently didn't apply on the first `bench migrate`** — a second, distinct
+bug. Standard module JSON for non-`DocType` doctypes (like `Report`) is re-synced
+based on comparing the file's declared `modified` timestamp against the database
+row's, not a content hash the way `DocType` JSON is (confirmed by reading
+`frappe/modules/import_file.py`). Every report JSON in this app used the same
+static `"2026-09-01 00:00:00.000000"` `modified` value, which never advanced between
+edits, so `bench migrate` kept deciding nothing had changed and skipped re-importing
+— confirmed directly by checking the DB's `query` field still held the old SQL after
+a "successful" migrate. Fixed by bumping `modified` to `"2026-09-02"` in both report
+JSON files; re-migrated, confirmed the DB `query` field actually updated this time.
+**Lesson for every future edit to a standard Report/Page JSON in this app**: bump
+`modified`, or the edit silently won't take effect — logged in `docs/ASSUMPTIONS.md`.
+
+Re-verified through `frappe.desk.query_report.run(...)` (the real API, not just
+re-reading the SQL) after both fixes:
+```
+Due and Overdue PM Schedules → pm_program: "Air Conditioner - Clean Filter - Monthly"  (was: dtnj60ort6)
+Open Tickets by Outlet and Technician → ticket_taxonomy: "Maintenance / Preventive Maintenance / PM Failure"  (was: lmq3mr39el)
+```
+
+### Post-Phase-6 fix #2: a latent test bug, exposed by the sandbox's clock advancing
+Re-running the full suite after the report fix, `test_2_outlet_level_program_applies_
+to_every_active_outlet` failed (`AssertionError: 2 != 1`) — a test that had passed
+consistently through every prior phase. Root cause had nothing to do with the report
+fix: the sandbox's date advanced overnight (`2026-09-01` → `2026-09-02`, per the
+session's own date notice), exposing a latent issue in
+`test_pm_schedule_applicability.py`. Both `test_1` and `test_2` create an active PM
+Program, *then* insert new Outlets/Assets — each insert fires `after_insert`
+(`schedule_new_outlet`/`schedule_new_asset`), which calls `ensure_schedule(...,
+today())` immediately. Both tests *also* separately called `ensure_schedule(...,
+"2026-09-01")` (a hardcoded literal) shortly after. For the entire project so far,
+`today()` genuinely equaled `"2026-09-01"` in this sandbox, so both calls produced
+the *same* `generation_key` and `ensure_schedule`'s idempotency silently absorbed the
+second call — an untested coincidence, not a verified property. Once `today()`
+became `"2026-09-02"`, the two calls diverged, producing 2 distinct schedule rows for
+each new outlet/asset instead of 1. `test_1` has the identical redundant-schedule
+issue but never asserts an exact count for the affected asset, so it stayed green;
+`test_2` does assert an exact count, so it caught it. Fixed by replacing every
+hardcoded `"2026-09-01"` in `test_pm_schedule_applicability.py` with
+`frappe.utils.today()`, so the explicit `ensure_schedule` calls are now genuinely
+(not coincidentally) idempotent against whatever the `after_insert` hooks already
+did. Audited the other 3 test files for the same pattern (create-new-target
+after-an-active-program, then explicit `ensure_schedule` with a hardcoded date) —
+none of them have it: they either use hardcoded dates that are deliberately
+*distinct* from `today()` for test isolation (a different, correct use of hardcoded
+dates), or only assert existence/membership, not exact counts, so a redundant row
+wouldn't be visible even if one existed. Full suite: **10/10 passing**, confirmed
+stable regardless of which real day it's run on.
 
 ## Phase 7 — Deploy
 - [ ] Hosted on Frappe Cloud, demo login created

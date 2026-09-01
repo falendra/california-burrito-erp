@@ -15,6 +15,7 @@ Phase 1 fixture only has one.
 
 import frappe
 from frappe.tests import IntegrationTestCase
+from frappe.utils import today
 
 from california_burrito.utils.schedule import ensure_schedule, find_applicable_targets
 
@@ -58,7 +59,7 @@ class TestPMScheduleApplicability(IntegrationTestCase):
 		self.assertNotIn(FIXTURE_CHILLER_ASSET, target_assets)
 
 		for outlet_name, asset_name in targets:
-			ensure_schedule(program.name, outlet_name, asset_name, "2026-09-01")
+			ensure_schedule(program.name, outlet_name, asset_name, today())
 
 		scheduled_assets = set(
 			frappe.get_all("CB PM Schedule", filters={"pm_program": program.name}, pluck="asset")
@@ -71,11 +72,11 @@ class TestPMScheduleApplicability(IntegrationTestCase):
 		# must not create a second row — the DB-level unique constraint on
 		# generation_key is what actually guards this, not a pre-check.
 		before = frappe.db.count(
-			"CB PM Schedule", {"pm_program": program.name, "asset": FIXTURE_AC_ASSET, "due_date": "2026-09-01"}
+			"CB PM Schedule", {"pm_program": program.name, "asset": FIXTURE_AC_ASSET, "due_date": today()}
 		)
-		ensure_schedule(program.name, FIXTURE_OUTLET, FIXTURE_AC_ASSET, "2026-09-01")
+		ensure_schedule(program.name, FIXTURE_OUTLET, FIXTURE_AC_ASSET, today())
 		after = frappe.db.count(
-			"CB PM Schedule", {"pm_program": program.name, "asset": FIXTURE_AC_ASSET, "due_date": "2026-09-01"}
+			"CB PM Schedule", {"pm_program": program.name, "asset": FIXTURE_AC_ASSET, "due_date": today()}
 		)
 		self.assertEqual(before, after)
 
@@ -116,7 +117,7 @@ class TestPMScheduleApplicability(IntegrationTestCase):
 			self.assertIn(outlet, target_outlets)
 
 		for outlet_name, asset_name in targets:
-			ensure_schedule(program.name, outlet_name, asset_name, "2026-09-01")
+			ensure_schedule(program.name, outlet_name, asset_name, today())
 
 		for outlet in [*new_outlets, FIXTURE_OUTLET]:
 			self.assertEqual(

@@ -88,6 +88,40 @@ here directly, not just narrated in `PROGRESS.md`.
   same kind of thing as a hand-raised issue against one of the real categories. The
   real import later turned out to contain a row with those exact same four values;
   confirmed permanent, not a placeholder to revisit.
+- **`CB PM Schedule.status`'s `Due` option is never actually set by any code path.**
+  The spec defines the daily job as flipping `Scheduled`/`Due` → `Overdue`, but no
+  mechanism anywhere transitions `Scheduled` → `Due` in the first place — it's a
+  defined Select option nothing ever populates. Rather than build an un-asked-for
+  mechanism to set it (out of scope — CLAUDE.md rules out any scheduler beyond the
+  single daily job), the Phase 6 "Due and Overdue" report filters directly on
+  `due_date <= today` (excluding `Completed`/`Cancelled`), independent of the status
+  field — which also makes it correct regardless of whether the daily job has ever
+  run (it's disabled by default).
+- **Phase 6 reports built as Query Reports (SQL), not Report Builder saved filters.**
+  A due/overdue view needs a date-relative condition (`due_date <= CURDATE()`), which
+  a Report Builder's saved filter can't express (it stores literal values, evaluated
+  once at save time, not a live expression). A Query Report's SQL is still a native,
+  standard Frappe report type — not custom dashboard code — and its correctness is
+  directly verifiable (ran the SQL and the actual `frappe.desk.query_report.run` API
+  against real data before considering it done), unlike a hand-authored Report
+  Builder JSON blob, which can't be visually verified without browser access.
+- **A Query Report's Link-type columns don't auto-resolve `title_field`/
+  `show_title_field_in_link`.** Those two properties only affect Link *field widgets*
+  (forms, dropdowns, standard list views) — a Query Report's SQL returns whatever a
+  column selects, with no automatic title lookup, confirmed by inspecting the
+  frontend's report-rendering code and by a real screenshot showing the raw hash.
+  Fixed by joining the target doctype in the SQL and selecting its readable field
+  directly (`CB PM Program.program_name`, `CB Ticket Taxonomy.taxonomy_label`)
+  instead of the raw Link value, with that column's `fieldtype` changed to `Data`
+  accordingly (a `Link`-typed column showing a label instead of the real docname
+  would route incorrectly if clicked).
+- **Editing a standard module `Report`'s JSON doesn't take effect on `bench migrate`
+  unless its `modified` timestamp is bumped past what's in the database** — unlike
+  DocType JSON, which is re-synced based on a content hash regardless of the
+  `modified` field. Every standard Report/Page-type JSON file in this app needs its
+  `modified` field advanced on every real edit going forward, or `bench migrate` will
+  silently skip the change (confirmed by reading `frappe/modules/import_file.py`'s
+  sync logic, after a fix silently failed to apply on the first attempt).
 
 ## 3. Scope deliberately cut
 
