@@ -120,6 +120,16 @@ system demoable, generate a small, clearly-labeled set and tell me exactly what 
 and why — this becomes a documented assumption in the README, not a hidden implementation
 detail. The same rule applies to any other gap in the source data: log it, don't invent it.
 
+## Assumptions log
+`docs/ASSUMPTIONS.md` is the compiled, reviewable record of every assumption and
+ambiguity call — organized by category (data ambiguity, domain modeling choices, cut
+scope, synthesized data), not chronologically. It's what `README.md`'s assumptions
+section points to. From Phase 6 onward: **any new assumption or ambiguity call gets
+added to `docs/ASSUMPTIONS.md` directly, not just narrated in `PROGRESS.md`.**
+`PROGRESS.md` stays the detailed phase-by-phase record of how each was found and
+verified; `docs/ASSUMPTIONS.md` stays the short, one-or-two-sentence summary of the
+ambiguity, the decision, and why.
+
 ## AI development discipline
 Use yourself aggressively for implementation, but preserve human ownership of architecture
 and business decisions.
