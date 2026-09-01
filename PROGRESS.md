@@ -1040,6 +1040,58 @@ Full suite: **15/15 passing** (10 existing + 5 new). Confirmed no test-data leak
 `CB Ticket` shows exactly `TKT-00001` and `TKT-00002` afterward, nothing extra. Site
 up, `bench start` stable throughout.
 
+### Post-fix: CB Spare Part's dropdown showed raw part codes
+Falendra caught it before it needed a screenshot this time: `part_code` alone isn't
+identifiable to a human picking manually, and `part_name` alone is ambiguous —
+verified exactly 15 spare parts share the literal name "Gasket" across different
+equipment models (Chest Freezer, 2/4 Door Chiller, 2/4 Door Freezer, Under Counter
+Freezer/Chiller, Back Bar, Visi Cooler — each Celfrost/Trufrost variant its own row).
+Applied the exact same pattern as `CB Ticket Taxonomy.taxonomy_label` (Phase 3):
+added a hidden, system-generated `part_label` field (`before_save`,
+`f"{part_name} — {equipment_model} ({part_code})"`), set `title_field: "part_label"`
+and `show_title_field_in_link: 1`, and widened `search_fields` to
+`part_code,part_name,equipment_model` so a technician can type "gasket" or "chest
+freezer" and find it, not just the exact code. Backfilled all 391 existing rows via
+`frappe.db.set_value` (391 rows, deterministic formula — a full `doc.save()` per row
+wasn't necessary). Confirmed via `get_link_title()` (not just `get_title()`, per the
+Phase 6 lesson):
+```
+get_link_title("CB Spare Part", "CF01CF")  -> "Gasket — Chest Freezer Celfrost (CF01CF)"
+get_link_title("CB Spare Part", "2DC01CF") -> "Gasket — 2 Door Chiller Celfrost (2DC01CF)"
+```
+Confirms the exact disambiguation this was for — two different "Gasket" parts now
+show distinct, identifiable labels. `TKT-00002.suggested_spare_part` re-checked and
+still resolves correctly through the same call. Full suite: **15/15 still passing**.
+No new `docs/ASSUMPTIONS.md` entry — this applies an already-logged pattern
+(Phase 6's `show_title_field_in_link` finding) to a new doctype, not a new judgment
+call.
+
+### Post-fix: field description jargon audit
+Falendra caught `CB Ticket.suggested_spare_part`'s description still naming internal
+field references (`Spare Part.equipment_model`, `asset_type`) instead of plain
+end-user language, and asked whether any others were missed. They were — grepped
+every `"description"` across all 11 doctypes and found 4 more on **visible** fields
+with the same problem, worst being `CB Zonal Office.city`'s, which named `Phase 5`,
+`PROGRESS.md`, and the raw source filename `PM_Case_User_Master.csv` directly in a
+field tooltip an end user would see while picking a city. Fixed all 5:
+
+| Field | Before | After |
+|---|---|---|
+| `CB Ticket.suggested_spare_part` | named `Spare Part.equipment_model`/`asset_type` | "Auto-suggested based on the equipment and issue — confirm or pick a different part." |
+| `CB Spare Part.equipment_model` | named `CB Asset.model` | "...should match the equipment's model exactly." |
+| `CB PM Program.program_name` | named the hidden `Program Key` field + a field-name tuple | "A short, readable name for this program, e.g. ..." |
+| `CB Zonal Office.city` | named Phase 5, PROGRESS.md, the raw CSV filename | "The city this zonal office covers. Use COR for the Corporate Office..." |
+| `CB PM Schedule.asset` | said "Enforced in `validate()`" | "Required when the PM Program targets a specific Asset Type; leave blank for outlet-level programs." |
+| `CB Ticket.asset` | cross-referenced "PM Schedule" by name | "Optional — leave blank when the issue isn't specific to one piece of equipment." |
+
+**Deliberately left alone**: descriptions on **hidden** fields (`program_key`,
+`generation_key`, `taxonomy_key`, `taxonomy_label`, `part_label`) — these are never
+shown to an end user in the normal form view (only visible via Customize Form to
+someone with developer access), so developer-facing implementation language there is
+appropriate, not a bug. Flagging this distinction explicitly in case Falendra wants
+those cleaned up too. Verified all 6 fixed descriptions live via `frappe.get_meta()`
+(not just re-reading the JSON). Full suite: **15/15 still passing**.
+
 ## Phase 7 — Deploy
 - [ ] Hosted on Frappe Cloud, demo login created
 - [ ] README written (what/why/cut/assumptions/AI usage/how to run)

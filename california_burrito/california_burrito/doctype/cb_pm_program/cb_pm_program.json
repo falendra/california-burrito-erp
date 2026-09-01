@@ -14,7 +14,7 @@
  ],
  "fields": [
   {
-   "description": "Human label — not the identity. Logical uniqueness is (Asset Type, Task Description, Frequency), enforced via Program Key below.",
+   "description": "A short, readable name for this program, e.g. \"AC Filter Clean - Monthly\".",
    "fieldname": "program_name",
    "fieldtype": "Data",
    "in_list_view": 1,

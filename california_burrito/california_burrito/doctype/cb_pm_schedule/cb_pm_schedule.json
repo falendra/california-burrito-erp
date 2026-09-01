@@ -32,7 +32,7 @@
    "reqd": 1
   },
   {
-   "description": "Required if the linked PM Program has an Asset Type set; must be blank if it doesn't. Enforced in validate().",
+   "description": "Required when the PM Program targets a specific Asset Type; leave blank for outlet-level programs.",
    "fieldname": "asset",
    "fieldtype": "Link",
    "in_list_view": 1,

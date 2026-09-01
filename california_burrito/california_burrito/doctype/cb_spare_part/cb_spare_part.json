@@ -8,7 +8,8 @@
   "part_code",
   "part_name",
   "equipment_model",
-  "active"
+  "active",
+  "part_label"
  ],
  "fields": [
   {
@@ -27,7 +28,7 @@
    "reqd": 1
   },
   {
-   "description": "e.g. \"2 Door Chiller Celfrost\" — matches CB Asset.model.",
+   "description": "e.g. \"2 Door Chiller Celfrost\" — should match the equipment's model exactly.",
    "fieldname": "equipment_model",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -42,11 +43,19 @@
    "in_standard_filter": 1,
    "label": "Active",
    "reqd": 1
+  },
+  {
+   "description": "Computed in before_save from part_name, equipment_model, and part_code — part_code alone isn't identifiable to a human picking manually, and part_name alone is ambiguous (multiple parts share a name across different equipment models, e.g. several \"Gasket\" parts). System-generated, not user-editable.",
+   "fieldname": "part_label",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Part Label",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-01 00:00:00.000000",
+ "modified": "2026-09-02 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "California Burrito",
  "name": "CB Spare Part",
@@ -65,7 +74,10 @@
    "write": 1
   }
  ],
+ "search_fields": "part_code,part_name,equipment_model",
+ "show_title_field_in_link": 1,
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "title_field": "part_label"
 }

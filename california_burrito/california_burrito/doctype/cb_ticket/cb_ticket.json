@@ -27,7 +27,7 @@
    "reqd": 1
   },
   {
-   "description": "Optional — same reasoning as PM Schedule: blank when the issue isn't specific to one piece of equipment.",
+   "description": "Optional — leave blank when the issue isn't specific to one piece of equipment.",
    "fieldname": "asset",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -85,7 +85,7 @@
    "read_only": 1
   },
   {
-   "description": "Auto-suggested by matching Spare Part.equipment_model against the Asset's model (or asset_type if model is blank), narrowed by the ticket's taxonomy — simple text match, not a recommendation engine. Recomputed whenever the ticket is created or its asset/taxonomy changes; editable so the suggestion can be confirmed or overridden.",
+   "description": "Auto-suggested based on the equipment and issue — confirm or pick a different part.",
    "fieldname": "suggested_spare_part",
    "fieldtype": "Link",
    "in_list_view": 1,

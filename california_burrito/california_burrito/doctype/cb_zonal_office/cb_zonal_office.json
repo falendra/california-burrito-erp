@@ -18,7 +18,7 @@
    "unique": 1
   },
   {
-   "description": "COR added in Phase 5 (see PROGRESS.md): PM_Case_User_Master.csv has one real technician (the most senior in the roster) with Home = \"COR\" (Corporate Office), not one of the 6 store-serving city zonal offices.",
+   "description": "The city this zonal office covers. Use COR for the Corporate Office, which isn't tied to a specific store city.",
    "fieldname": "city",
    "fieldtype": "Select",
    "in_list_view": 1,
