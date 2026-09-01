@@ -310,6 +310,23 @@ and their parent Schedule/Ticket, not browsed by raw ID.
   resolving `TKT-00001.ticket_taxonomy` directly to the same label. Kept
   `search_fields` too — label handles display, search_fields still helps typing
   partial matches when picking one.
+  **That fix was incomplete — corrected immediately after:** `TKT-00001` still showed
+  the raw hash in the browser despite `get_title()` returning the right label. Not a
+  cache problem — checked, the backfill had used a normal `doc.save()` (which does
+  fire `before_save`), not a raw bulk update, so that specific hypothesis wasn't it.
+  The real cause: Frappe gates a Link **field's** displayed value through a
+  *separate* DocType property, `show_title_field_in_link` (default 0), checked by
+  `frappe.desk.search.get_link_title` — the actual whitelisted endpoint the desk
+  UI's Link control calls — *before* it even looks at `title_field`.
+  `get_title()` only covers a document's own page title/breadcrumb, not how it's
+  displayed when linked from elsewhere. Added `"show_title_field_in_link": 1`,
+  `bench migrate`, ran `bench --site development.localhost clear-cache` for good
+  measure, then re-verified through `get_link_title()` itself (not `get_title()`)
+  — now returns the label for both. **This exact same gap existed on `CB PM
+  Program` since Phase 2/3 and is fixed now too** — its title fix was reported as
+  done back then based on `get_title()` alone, which was true for its own list
+  view/breadcrumb but not for `CB PM Schedule.pm_program`-style Link fields
+  elsewhere; that was an incomplete verification on my part, not a separate bug.
 - **CB Ticket** — `outlet`, `asset` (optional), `ticket_taxonomy`, `description`,
   `priority` (Low/Medium/High, default Medium), `status` (Open/Assigned/In
   Progress/Resolved/Closed/Cancelled, default Open), `assigned_to`,

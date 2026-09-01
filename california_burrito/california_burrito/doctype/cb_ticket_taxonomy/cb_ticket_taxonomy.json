@@ -82,6 +82,7 @@
   }
  ],
  "search_fields": "department,category,sub_category_1,sub_category_2",
+ "show_title_field_in_link": 1,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
