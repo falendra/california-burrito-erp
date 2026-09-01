@@ -122,6 +122,30 @@ here directly, not just narrated in `PROGRESS.md`.
   `modified` field advanced on every real edit going forward, or `bench migrate` will
   silently skip the change (confirmed by reading `frappe/modules/import_file.py`'s
   sync logic, after a fix silently failed to apply on the first attempt).
+- **Spare-part matching algorithm (docs/DocType_Spec.md section 9).** The spec says
+  "match Spare Part.equipment_model against Asset.model (or asset_type if blank),
+  narrowed by ticket_taxonomy text" but doesn't specify exact-match vs. substring, or
+  how to pick among several equally-plausible parts. Implemented as: substring match
+  (case-sensitive `LIKE %descriptor%`) — necessary since `equipment_model` values are
+  always brand-suffixed (e.g. `"Chest Freezer Celfrost"`, never the bare asset type
+  or model), so exact equality would never match anything; when that yields more than
+  one candidate, narrow by keyword overlap between the taxonomy's category/sub-
+  category text and each candidate's `part_name`; if still tied (or no taxonomy to
+  narrow with), pick deterministically (sorted by part code) rather than guess a
+  "best" one — a simple text match, not a recommendation engine, and the user
+  confirms or overrides regardless.
+- **Demonstrated the scenario on a new ticket, not on `TKT-00001`.** Checked
+  `TKT-00001` (the one real PM-failure ticket) as asked: it's against an Air
+  Conditioner with no `model`, and the real Spare Part catalog has no
+  `equipment_model` containing the literal phrase "Air Conditioner" (AC parts are
+  catalogued under brand names like `"Dsw Ac Commercial Aircon"` instead) — so it
+  correctly gets no suggestion, a real gap in the catalog, not a bug. The real data
+  does have a clean equivalent to ASSIGNMENT.md's own illustrative example
+  ("chest freezer... gasket... a part code for exactly that") — a real `ChestFreezer
+  / "Gasket Broken"` taxonomy row and a real `CF01CF` Gasket part for `"Chest Freezer
+  Celfrost"` — so created one new ticket (`TKT-00002`) against a real,
+  Phase-5-synthesized Chest Freezer asset to demonstrate it working, rather than
+  force TKT-00001 into a scenario it doesn't fit.
 
 ## 3. Scope deliberately cut
 
@@ -176,3 +200,9 @@ imported data later.
   representative asset per pair, at the 10 outlets that file happens to track" is
   still a synthesis decision, not a real inventory count. The other 123 real outlets
   got zero synthesized assets from this phase.
+- **`CB Ticket` `TKT-00002`** — one new demo ticket, created to demonstrate spare-part
+  suggestion on the exact ASSIGNMENT.md scenario (chest freezer, gasket broken). The
+  ticket record itself is synthesized (hand-raised, not from any import or PM
+  execution), but everything it references is real: a real Phase-5-synthesized
+  Chest Freezer asset (`AST-00007`), a real imported taxonomy row (`Maintenance /
+  ChestFreezer / Gasket Broken`), and a real imported spare part (`CF01CF`).

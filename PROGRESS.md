@@ -955,6 +955,91 @@ dates), or only assert existence/membership, not exact counts, so a redundant ro
 wouldn't be visible even if one existed. Full suite: **10/10 passing**, confirmed
 stable regardless of which real day it's run on.
 
+## Post-Phase-6: Spare-part suggestion (deferred from Phase 3, then Phase 5)
+ASSIGNMENT.md's chosen "go further" direction is "PM failure → ticket → spare-part
+suggestion → technician assignment." The spare-part-suggestion link — `CB Ticket.
+suggested_spare_part` and its matching logic, per `docs/DocType_Spec.md` section 9 —
+was deferred twice (Phase 3: `CB Spare Part` didn't exist yet; Phase 5: out of that
+phase's scope) and never circled back to. Implemented now, before Phase 7.
+
+### What was created
+- **`CB Ticket.suggested_spare_part`** (Link → CB Spare Part), added at the field
+  position the spec's own table already specifies (between `source_pm_execution` and
+  `resolved_on`). Editable, not read-only — the spec explicitly says the user
+  confirms or overrides the suggestion, so it must stay changeable.
+- **`california_burrito/utils/spare_parts.py`** — `suggest_spare_part(asset_name,
+  ticket_taxonomy_name)`: substring-matches `CB Spare Part.equipment_model` against
+  the asset's `model` (or `asset_type` if `model` is blank); if that yields more than
+  one candidate, narrows by keyword overlap between the taxonomy's
+  category/sub-category text and each candidate's `part_name`; if still tied (or no
+  taxonomy given), picks deterministically (sorted by part code). Returns `None` if
+  nothing matches or there's no asset to match against. Pure function, no side
+  effects — matches the `normalization.py`/`schedule.py` pattern of keeping matching
+  logic testable and out of the controller.
+- **`CB Ticket.validate()`** calls it, but only recomputes (and overwrites
+  `suggested_spare_part`) when the ticket is new or its `asset`/`ticket_taxonomy`
+  actually changed since the last save (checked via `get_doc_before_save()`) — not on
+  every save. This is what lets a manually confirmed/overridden suggestion survive an
+  unrelated edit (e.g. moving the ticket from Open to Assigned) instead of being
+  silently reset back to the auto-suggestion each time.
+- No `docs/DocType_Spec.md` changes — the implementation matches its section 9
+  description faithfully (substring match is a necessary reading of "match... against",
+  not a deviation from it: `equipment_model` values are always brand-suffixed, e.g.
+  `"Chest Freezer Celfrost"`, so exact equality against a bare asset type or model
+  would never match anything). Two implementation-judgment calls the spec left open
+  (the exact narrowing/tie-break algorithm; which real ticket to demonstrate it on)
+  are logged in `docs/ASSUMPTIONS.md` directly, per the standing rule — not spec
+  deviations, just filled-in specifics.
+
+### Confirmed against real data — the exact ASSIGNMENT.md scenario exists
+Checked `TKT-00001` first, as asked. It's an Air Conditioner ticket (`AST-00003`,
+`model` blank) with the PM-failure taxonomy — resaving it retroactively (to trigger
+the new `validate()` logic on an existing record) correctly leaves
+`suggested_spare_part` blank: the real Spare Part catalog has no `equipment_model`
+containing the literal phrase "Air Conditioner" (AC parts are catalogued under brand
+names like `"Dsw Ac Commercial Aircon"` instead). This is a real gap in the catalog,
+not a bug — no false-positive guess.
+
+The real data does have a clean, exact equivalent to ASSIGNMENT.md's own illustrative
+example ("A ticket says 'Gasket Broken' on a chest freezer. The spare-parts catalog
+has a part code for exactly that."):
+- Real taxonomy row: `Maintenance / ChestFreezer / "Gasket Broken"`.
+- Real spare part: `CF01CF`, `part_name = "Gasket"`, `equipment_model = "Chest
+  Freezer Celfrost"` (one of 8 real parts cataloged for that equipment).
+- Real asset: `AST-00007`, a Chest Freezer at outlet ADM — one of the 111 assets
+  Phase 5 synthesized directly from `Before.xlsx`'s own outlet/asset-type pairs.
+
+Created one new ticket, `TKT-00002`, against these three real records (outlet ADM,
+asset `AST-00007`, the real gasket taxonomy) — a genuinely new record (nothing like
+it existed before), but everything it *references* is real, imported data, not
+fabricated. Confirmed: `suggested_spare_part` was set to `CF01CF` automatically on
+insert, with no manual intervention. This is also the first ticket in the system
+raised through the *manual* path (a technician directly filing a reactive ticket)
+rather than the automatic PM-failure path `TKT-00001` came from — a nice bonus, since
+it exercises the other ticket-creation route ASSIGNMENT.md's "reasonable v1" list
+names ("Raise a reactive ticket against an asset at a store").
+
+### Tests
+`california_burrito/tests/test_spare_part_suggestion.py` — 5 tests, all against real
+imported data:
+- `test_chest_freezer_gasket_broken_suggests_the_real_gasket_part` — the exact
+  ASSIGNMENT.md scenario.
+- `test_suggestion_narrows_by_taxonomy_when_equipment_has_several_parts` — without a
+  taxonomy hint, any of the 8 real "Chest Freezer Celfrost" parts is an acceptable
+  answer (not an error, not nothing); with the gasket-specific taxonomy, it must be
+  exactly the gasket.
+- `test_no_asset_means_no_suggestion` — an outlet-level ticket (no asset) gets no
+  suggestion.
+- `test_no_matching_equipment_means_no_suggestion` — `TKT-00001`'s real situation
+  (Air Conditioner, no catalog match) reproduced directly against `suggest_spare_part`.
+- `test_manual_override_survives_an_unrelated_save` — override the suggestion, save
+  for an unrelated reason (status change) → override survives; then change the asset
+  (a relevant change) → the suggestion refreshes to match the new asset.
+
+Full suite: **15/15 passing** (10 existing + 5 new). Confirmed no test-data leakage —
+`CB Ticket` shows exactly `TKT-00001` and `TKT-00002` afterward, nothing extra. Site
+up, `bench start` stable throughout.
+
 ## Phase 7 — Deploy
 - [ ] Hosted on Frappe Cloud, demo login created
 - [ ] README written (what/why/cut/assumptions/AI usage/how to run)

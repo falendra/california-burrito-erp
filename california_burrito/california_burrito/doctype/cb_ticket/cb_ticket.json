@@ -13,6 +13,7 @@
   "status",
   "assigned_to",
   "source_pm_execution",
+  "suggested_spare_part",
   "resolved_on"
  ],
  "fields": [
@@ -84,6 +85,14 @@
    "read_only": 1
   },
   {
+   "description": "Auto-suggested by matching Spare Part.equipment_model against the Asset's model (or asset_type if model is blank), narrowed by the ticket's taxonomy — simple text match, not a recommendation engine. Recomputed whenever the ticket is created or its asset/taxonomy changes; editable so the suggestion can be confirmed or overridden.",
+   "fieldname": "suggested_spare_part",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Suggested Spare Part",
+   "options": "CB Spare Part"
+  },
+  {
    "fieldname": "resolved_on",
    "fieldtype": "Date",
    "label": "Resolved On"
@@ -91,7 +100,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-01 00:00:00.000000",
+ "modified": "2026-09-02 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "California Burrito",
  "name": "CB Ticket",
