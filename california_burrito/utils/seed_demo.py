@@ -250,7 +250,9 @@ def retire_fixture_program(program_name):
 	frappe.db.set_value("CB PM Program", program_name, "active", 0)
 
 
+@frappe.whitelist()
 def run():
+	frappe.only_for("System Manager")
 	frappe.set_user("Administrator")
 
 	blr_zonal_office = _get_or_create_zonal_office("BLR")

@@ -4,8 +4,16 @@
 """Phase 5: deterministic import of data/source/*.xlsx|csv into the live site.
 
 Run via:
-    bench --site <site> execute california_burrito.utils.import_data.run \\
-        --kwargs "{'source_dir': '/workspace-project/data/source'}"
+    bench --site <site> execute california_burrito.utils.import_data.run
+
+or, since it's whitelisted (see `run`'s @frappe.whitelist() below):
+    POST /api/method/california_burrito.utils.import_data.run
+
+Both work with zero arguments -- `source_dir` defaults to `data/source/` next
+to the installed app (resolved via frappe.get_app_path), not a hardcoded
+local-container path, so the same call works unchanged on Frappe Cloud. Pass
+`source_dir` explicitly only to point at a different location (e.g. when
+running against `data/source/` copied somewhere else for a one-off test).
 
 Dependency order per docs/DocType_Spec.md's header:
     Zonal Office -> Outlet -> Asset Type -> Technician -> Asset -> PM Program ->
@@ -367,8 +375,22 @@ def seed_initial_schedules(summary):
 				summary.count("CB PM Schedule seeded (new)")
 
 
-def run(source_dir="/workspace-project/data/source"):
+@frappe.whitelist()
+def run(source_dir=None):
+	frappe.only_for("System Manager")
 	frappe.set_user("Administrator")
+
+	if source_dir is None:
+		# frappe.get_app_path("california_burrito") resolves to the app's own
+		# importable package dir (.../california_burrito/california_burrito) --
+		# data/source/ sits one level up from that, at the repo root, alongside
+		# pyproject.toml. Resolved this way (not a hardcoded local-container path)
+		# so a zero-argument REST call works identically here and on Frappe Cloud,
+		# wherever the app actually gets installed.
+		source_dir = os.path.normpath(
+			os.path.join(frappe.get_app_path("california_burrito"), "..", "data", "source")
+		)
+
 	summary = ImportSummary()
 
 	zonal_office_by_city = import_zonal_offices(summary)

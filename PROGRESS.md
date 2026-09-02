@@ -1478,6 +1478,84 @@ auto `resolved_on` stamping, no notifications) — genuinely out of scope per
 the chosen "go further" chain and ASSIGNMENT.md's own reasonable-v1 list, not
 a missed gap. Documentation-only, no code touched.
 
+## Pre-deploy: REST fallback for `import_data.run()`/`seed_demo.run()`
+
+SSH access to Frappe Cloud is unavailable for this account (age restriction,
+not fixable in this timeline), which rules out running these two scripts the
+way they've been run so far (`bench execute` over SSH). Switched to Frappe's
+REST whitelist mechanism instead: added `@frappe.whitelist()` above `def
+run(...)` in both `california_burrito/utils/import_data.py` and
+`california_burrito/utils/seed_demo.py`, callable as
+`/api/method/california_burrito.utils.import_data.run` and
+`/api/method/california_burrito.utils.seed_demo.run`. Also added
+`frappe.only_for("System Manager")` as the first line of each — not asked
+for, but cheap and worth doing: a whitelisted function defaults to callable
+by *any* logged-in user, not just Administrator, and these two re-run a full
+data import/demo-seed. Confirmed it actually blocks: called
+`seed_demo.run()` directly as a `Guest`-context user and got a
+`PermissionError`, not a silent pass-through.
+
+**Verified on a genuinely fresh site, driven purely over HTTP** — not just
+that the decorator resolves, the same standard this project has held to for
+`seed_demo.py` itself. Created another throwaway site
+(`resttest.localhost`), installed the app, generated a temporary API
+key/secret for its own Administrator user (`user.api_key`/`api_secret` set
+via a one-off console command, not committed anywhere), then called both
+endpoints with `curl -H "Authorization: token <key>:<secret>"` — the same
+mechanism Frappe Cloud's REST access will use, no SSH involved.
+
+- `import_data.run` via `POST /api/method/...import_data.run`: HTTP 200,
+  counts **identical** to every prior run of this script — 133 outlets, 41
+  technicians, 26 programs, 391 spare parts, 842 taxonomy rows created, same
+  4 unresolved `reports_to` warnings, same 3 frequency-conflict warnings.
+- `seed_demo.run` via `POST /api/method/...seed_demo.run`: HTTP 200. Final
+  state matched the earlier `seedtest.localhost` bench-execute rehearsal
+  exactly: 135 outlets, 116 assets, 42 technicians, 27 programs (fixture one
+  confirmed `active = 0`), 523 schedules, 1 execution, 2 tickets — both with
+  their `suggested_spare_part`/`assigned_to` correctly auto-computed, the
+  failed-execution chain (schedule → Completed, `TKT-00001` generated) intact.
+- Full test suite on this REST-driven site: **19/19**.
+- Dropped `resttest.localhost` after verification. Confirmed no API
+  credentials were left behind on `development.localhost` (that key/secret
+  only ever existed on the now-dropped throwaway site).
+- Re-ran the suite on `development.localhost` too: still **19/19**, confirming
+  the two `@frappe.whitelist()` additions didn't disturb anything there.
+
+## Pre-deploy: `import_data.run()`'s `source_dir` now resolves relative to the app, not this container
+
+Closed the gap flagged above. `source_dir` no longer defaults to
+`/workspace-project/data/source` (a path specific to this local dev
+container's bind mount) — it now defaults to `None`, and when unset, resolves
+via `os.path.normpath(os.path.join(frappe.get_app_path("california_burrito"),
+"..", "data", "source"))`. `frappe.get_app_path("california_burrito")`
+resolves to the app's own importable package directory
+(`.../california_burrito/california_burrito`); `data/source/` sits one level
+up from that, alongside `pyproject.toml`, at the repo root — same relative
+position whether the app is symlinked in locally or git-cloned directly by
+Frappe Cloud. `source_dir` stays a parameter (not removed) so an explicit
+path still works for pointing at `data/source/` copied somewhere else for a
+one-off test.
+
+**Verified locally** via `bench console`: resolved to
+`/workspace/development/frappe-bench/apps/california_burrito/data/source`
+(through the `apps/california_burrito` symlink) and confirmed it exists and
+lists all 4 real source files.
+
+**Verified with the same fresh-site-plus-curl rigor as the whitelist
+work** — not just re-testing on `development.localhost`, which already has a
+default that happens to match its own layout and wouldn't catch a regression.
+Created another throwaway site (`sourcedirtest.localhost`), installed the
+app, generated a temporary API key, and called
+`POST /api/method/california_burrito.utils.import_data.run` with **no body
+at all** (true zero-argument REST call, exactly what Frappe Cloud will send):
+HTTP 200, counts identical to every prior run (133 outlets, 41 technicians,
+26 programs, 391 spare parts, etc.) — confirming the auto-resolved path found
+the real `data/source/` on a site that never had `/workspace-project`
+anywhere in its container. Followed with a zero-argument
+`seed_demo.run()` call (HTTP 200) and the full test suite (**19/19**) on the
+same site, then dropped it. Re-ran the suite on `development.localhost`
+afterward: still 19/19, no leftover API credentials.
+
 ## Phase 7 — Deploy
 - [ ] Hosted on Frappe Cloud, demo login created
 - [ ] README written (what/why/cut/assumptions/AI usage/how to run)
