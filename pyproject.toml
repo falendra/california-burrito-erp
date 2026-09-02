@@ -15,6 +15,12 @@ dependencies = [
 requires = ["flit_core >=3.4,<4"]
 build-backend = "flit_core.buildapi"
 
+# Frappe Cloud reads this to resolve a compatible Frappe framework version at deploy
+# time -- without it, deployment fails. This app was built against the version-16
+# branch (confirmed via `bench version`: frappe 16.32.0).
+[tool.bench.frappe-dependencies]
+frappe = ">=16.0.0-dev,<=17.0.0"
+
 # These dependencies are only installed when developer mode is enabled
 [tool.bench.dev-dependencies]
 # package_name = "~=1.1.0"
