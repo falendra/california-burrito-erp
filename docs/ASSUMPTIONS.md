@@ -189,6 +189,16 @@ authoritative version:
   matching, escalation on SLA breach) is explicitly deferred to post-deployment,
   not forgotten — it's a genuinely separate, larger feature, not a missing detail
   of this one.
+- Ticket lifecycle enforcement past creation and assignment — no state-machine
+  validation on `CB Ticket.status` transitions (e.g. nothing stops jumping
+  straight from `Open` to `Closed`), no automatic `resolved_on` stamping when
+  status changes to `Resolved`, no notifications on assignment or resolution;
+  `status` and `resolved_on` are plain fields a technician/manager updates
+  manually. Genuinely out of scope, not a missed gap like technician assignment
+  was: the chosen "go further" chain explicitly ends at assignment ("PM failure
+  → ticket → spare-part suggestion → technician assignment"), and
+  ASSIGNMENT.md's reasonable-v1 list only asks to raise a reactive ticket
+  against an asset, not enforce its full lifecycle.
 - Any of: microservices, Kafka, Kubernetes, event sourcing, CQRS, custom
   RBAC/scheduler/admin UI.
 

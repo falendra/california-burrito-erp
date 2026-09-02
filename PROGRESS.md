@@ -1378,6 +1378,106 @@ utility module). Full suite: **19/19 on `development.localhost`**, and
 Program confirmed `active = 0` with zero effect on existing Schedule/
 Execution/Ticket records. `git status` confirmed unstaged throughout.
 
+## Folder consolidation: `california_burrito_for_github` is now the only copy
+
+Frappe Cloud requires a GitHub-shaped layout — app files (`pyproject.toml`,
+`hooks.py`, etc.) at the repo root — which differs from how this project was
+originally structured (a project-root workspace folder wrapping the actual
+app as a subdirectory, itself wrapping the Python package one level further
+in). Rather than maintain two folders in sync (the original dev workspace and
+a GitHub-shaped export), `california_burrito_for_github` was built as a
+correctly-structured copy — app files promoted up one level, full git history
+preserved via `git filter-repo` — pushed to GitHub, and made the one and only
+copy going forward. `CLAUDE.md`, `docs/`, `PROGRESS.md` (this file), `data/`,
+and the app code all now live directly inside it.
+
+**Bind mount repointed**: `docker-compose.override.yml`'s `/workspace-project`
+mount (in the `frappe_docker` clone, which stays where it physically was —
+see below) now points at `california_burrito_for_github` instead of the old
+folder. Recreated the `frappe` container (`docker compose up -d
+--force-recreate frappe`) to pick it up; confirmed via `docker inspect` that
+the new mount source is correct.
+
+**Symlink target corrected, not just recreated — deviates from the literal
+plan, with evidence.** The instruction was to point
+`apps/california_burrito` at the new location's inner `california_burrito/`
+folder, "the Python package, not the repo root." Doing exactly that broke the
+site: `ModuleNotFoundError: No module named 'california_burrito.hooks'` on
+every request (confirmed in `bench_start.log`). Root cause: the "app files
+promoted to root" restructuring removed one level of nesting that the old
+folder had — the old `apps/california_burrito` symlink pointed at a wrapper
+folder (`pyproject.toml`, `README.md`, license only) with the real importable
+package (`hooks.py`, `tasks.py`, etc.) one level *inside* it, and Python's
+`.pth`-based import resolution depends on that wrapper/package split (the
+wrapper is what goes on `sys.path`; Python then finds the package as a
+subdirectory of it). The new repo already promoted that inner package up to
+be the repo's own `california_burrito/` folder, with `pyproject.toml`
+sitting at the outer repo root instead — i.e. the *repo root itself* is now
+the wrapper. Confirmed this is exactly the standard Frappe convention by
+inspecting the real `apps/frappe` clone in the same bench (not a symlink):
+`apps/frappe/pyproject.toml` at its own top level, `apps/frappe/frappe/`
+(with `hooks.py`) one level in — identical shape to what
+`california_burrito_for_github` now has at its own root. Fixed by pointing
+the symlink at `/workspace-project` (the repo root) instead of
+`/workspace-project/california_burrito`; confirmed via
+`python -c "import california_burrito.hooks"` before touching `bench start`
+again.
+
+**Verified working, not just resolving**: restarted `bench start` (the
+container's default command is `sleep infinity` — nothing auto-launches it,
+same as the original Phase 0 recipe), confirmed the site responds
+(`GET /app/login` → 301), ran `bench migrate` (clean), and ran the full test
+suite: **19/19**, from the new location.
+
+**Old folder renamed, not deleted** — `california_burrito ` (trailing space)
+→ `california_burrito _ARCHIVED_do_not_use`. One real risk here that isn't
+mentioned in "just rename it": `frappe_docker` (this bench's actual Docker
+Compose clone, providing the `/workspace` mount) still physically lives
+*inside* the old folder — only the separate `/workspace-project` mount moved.
+Renaming a directory a running container has bind-mounted could plausibly
+break that mount rather than just relocating it. Tested empirically rather
+than assumed: renamed the folder, then immediately re-ran `bench migrate`,
+the full test suite, and a site health check *from inside the already-running
+container* — all still **19/19** / clean / `HTTP 301`, confirming Docker
+Desktop's bind mount tolerates the rename (it tracks the share by handle, not
+by re-resolving the path string per request). Kept both verification runs
+(pre- and post-rename) in this entry rather than only the final one, since
+"it still resolves" and "it's actually safe" are different claims and this
+project's whole standard is proving the second, not assuming it from the
+first.
+
+**One consequence worth being explicit about**: `frappe_docker` — and
+therefore `docker-compose.yml`/`docker-compose.override.yml` themselves — now
+live under the *archived* folder
+(`california_burrito _ARCHIVED_do_not_use/frappe_docker/`), not under
+`california_burrito_for_github/`. That's deliberate (frappe_docker is
+dev-tooling, not project source, and was never asked to move), but it means
+any *future* `docker compose up`/`down`/rebuild (this session's already-running
+container doesn't need this — `exec`/`ps`/etc. resolve via the running
+container's labels, not by re-reading the compose files) must `cd` into
+`california_burrito _ARCHIVED_do_not_use/frappe_docker/devcontainer-example/`
+to find them, even though `california_burrito_for_github` is the one real
+project folder now. Also noting, not touching: `california_burrito_for_github`
+picked up its own untracked `frappe_docker/` copy during the `git filter-repo`
+export — confirmed it's genuinely untracked (`git ls-files frappe_docker` is
+empty, correctly never pushed to GitHub) and unused by the running stack;
+harmless but redundant, left alone since removing it wasn't asked for.
+
+### Verification
+`bench migrate`: clean, twice (once right after the symlink fix, once again
+after the old-folder rename). Full test suite: **19/19**, in both of those
+same two runs. Site health: `HTTP 301` on `/app/login`, both times. `git
+status` in `california_burrito_for_github` confirmed clean/expected
+(`frappe_docker/` untracked as noted above, nothing else stray).
+
+## Pre-deploy: one more documented scope cut
+
+Added a `docs/ASSUMPTIONS.md` category 3 entry for ticket lifecycle
+enforcement past creation/assignment (no `status` state-machine validation, no
+auto `resolved_on` stamping, no notifications) — genuinely out of scope per
+the chosen "go further" chain and ASSIGNMENT.md's own reasonable-v1 list, not
+a missed gap. Documentation-only, no code touched.
+
 ## Phase 7 — Deploy
 - [ ] Hosted on Frappe Cloud, demo login created
 - [ ] README written (what/why/cut/assumptions/AI usage/how to run)
