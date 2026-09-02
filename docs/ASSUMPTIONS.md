@@ -204,20 +204,52 @@ system works before or alongside the real import — **none of it is derived fro
 `data/source/`**, and it's called out explicitly here so it's never mistaken for
 imported data later.
 
+**Reproducibility**: this data was originally created by hand, one disposable
+console script per phase, as each phase was built. As of the pre-deploy polish
+pass, all of it is reproduced by one committed, idempotent script instead —
+`california_burrito/utils/seed_demo.py` (`bench execute
+california_burrito.utils.seed_demo.run`). The real deploy sequence is now
+*fresh site → install app → `import_data.run()` → `seed_demo.run()`* — nothing
+here is manually seeded through a script that gets thrown away anymore.
+Because the script runs *after* the real import (so its one hand-raised ticket
+can reference real imported data), asset docnames below are illustrative,
+not guaranteed: `CB Asset` uses an opaque naming series, so exactly which
+`AST-#####` number a given fixture asset gets depends on how many real assets
+the import already created first, and will differ between the one development
+site this project was built on and any fresh deploy. `seed_demo.py` itself
+never hardcodes these numbers — it always resolves each asset by
+`(outlet, asset_type)` — and the standing test suite was corrected to do the
+same after this reordering exposed several tests that had hardcoded the
+specific numbers from this project's own development history (see
+PROGRESS.md's post-audit polish section).
+
 - **Phase 1 fixture**: `CB Zonal Office` "BLR Zonal Office", `CB Outlet` "BLR001",
-  `CB Asset Type` "Air Conditioner"/"Walk-in Chiller", `CB Asset` `AST-00001`/
-  `AST-00002` with hand-picked `model` values — built by hand to prove
-  Program → Schedule → Execution → next Schedule before any real data existed.
-- **Phase 2 fixture**: one `CB PM Program` ("Air Conditioner / Clean filter /
-  Monthly") — hand-created before the real import; its task text was deliberately
-  distinct enough not to collide with the real "Clean Air Filters" program derived
-  in Phase 5.
+  `CB Asset Type` "Air Conditioner"/"Walk-in Chiller", one asset of each with
+  hand-picked `model` values — built by hand to prove Program → Schedule →
+  Execution → next Schedule before any real data existed.
+- **Phase 2 fixture**: one `CB PM Program` ("Air Conditioner - Clean Filter -
+  Monthly") — hand-created before the real import; its task text was
+  deliberately distinct enough not to collide with the real "Clean Air Filters"
+  program derived in Phase 5. **Retired (`active = 0`) as of the pre-deploy
+  polish pass**: it had done its job (this proof, plus the Phase 4 hero
+  scenario below) and, sitting next to the real "Air Conditioner - Clean Air
+  Filters - Monthly" program in a list view, read as a near-duplicate to a
+  reviewer skimming the PM Program list — confirmed via a fresh export that
+  this is the only such pair among all 27 programs, not a wider pattern.
+  Deactivated, not deleted: the existing PM Schedule/Execution chain and
+  `CB Ticket` `TKT-00001` (below) both trace back to it by `name`, and `active`
+  only gates *future* schedule generation (`find_applicable_targets`/
+  `schedule_new_asset`), never existing records. `seed_demo.py` sets this as
+  its own final, always-run step, so it can't be forgotten on a future re-seed.
 - **Phase 4 hero-scenario data** (persistent, not a rolled-back test): `CB Asset Type`
   "Freezer" and "Fryer" (invented before the real import — "Freezer" has no real
   counterpart; the real canonical type turned out to be "Chest Freezer", so the two
-  now coexist as separate types), `CB Outlet` "BLR134", `CB Asset` `AST-00003`/
-  `AST-00004`/`AST-00005`, and `CB Ticket` `TKT-00001` from a full failed-PM-to-ticket
-  walkthrough.
+  now coexist as separate types), `CB Outlet` "BLR134", one asset each of Air
+  Conditioner/Freezer/Fryer, and one `CB Ticket` from a full failed-PM-to-ticket
+  walkthrough (this project's own development site names it `TKT-00001`, being
+  the first ticket ever created there; a fresh deploy gets whatever the naming
+  series' first number is, deterministically, since it's created before the one
+  below).
 - **`DEMO-TECH-01`** — a `CB Technician` created solely to perform the hero-scenario
   execution; not from any import.
 - **The 111 `CB Asset` rows synthesized in Phase 5** sit in a middle ground worth
@@ -227,9 +259,10 @@ imported data later.
   representative asset per pair, at the 10 outlets that file happens to track" is
   still a synthesis decision, not a real inventory count. The other 123 real outlets
   got zero synthesized assets from this phase.
-- **`CB Ticket` `TKT-00002`** — one new demo ticket, created to demonstrate spare-part
+- **`CB Ticket` `TKT-00002`** (or whatever number the naming series gives it on a
+  fresh deploy) — one new demo ticket, created to demonstrate spare-part
   suggestion on the exact ASSIGNMENT.md scenario (chest freezer, gasket broken). The
   ticket record itself is synthesized (hand-raised, not from any import or PM
   execution), but everything it references is real: a real Phase-5-synthesized
-  Chest Freezer asset (`AST-00007`), a real imported taxonomy row (`Maintenance /
+  Chest Freezer asset at outlet ADM, a real imported taxonomy row (`Maintenance /
   ChestFreezer / Gasket Broken`), and a real imported spare part (`CF01CF`).

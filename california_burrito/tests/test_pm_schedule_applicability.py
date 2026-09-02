@@ -21,8 +21,6 @@ from california_burrito.utils.schedule import ensure_schedule, find_applicable_t
 
 FIXTURE_ZONAL_OFFICE = "BLR Zonal Office"
 FIXTURE_OUTLET = "BLR001"
-FIXTURE_AC_ASSET = "AST-00001"  # Air Conditioner
-FIXTURE_CHILLER_ASSET = "AST-00002"  # Walk-in Chiller
 FIXTURE_AC_PROGRAM_KEY = "Air Conditioner|Clean filter|Monthly"
 
 
@@ -31,8 +29,22 @@ class TestPMScheduleApplicability(IntegrationTestCase):
 		frappe.set_user("Administrator")
 
 	def test_1_asset_type_program_applies_only_to_matching_assets(self):
-		self.assertTrue(frappe.db.exists("CB Asset", FIXTURE_AC_ASSET))
-		self.assertTrue(frappe.db.exists("CB Asset", FIXTURE_CHILLER_ASSET))
+		# Looked up by (outlet, asset_type), not a hardcoded "AST-00001" docname -- the
+		# Phase 1 fixture's exact asset numbers depend on how many CB Asset rows the
+		# real import already created before this fixture runs (see
+		# california_burrito/utils/seed_demo.py's deploy-order docstring), so a literal
+		# name here would only happen to pass on whichever site created the fixture
+		# before ever running the import.
+		FIXTURE_AC_ASSET = frappe.db.get_value(
+			"CB Asset", {"outlet": FIXTURE_OUTLET, "asset_type": "Air Conditioner"}, "name"
+		)
+		FIXTURE_CHILLER_ASSET = frappe.db.get_value(
+			"CB Asset", {"outlet": FIXTURE_OUTLET, "asset_type": "Walk-in Chiller"}, "name"
+		)
+		self.assertTrue(FIXTURE_AC_ASSET, "Expected the Phase 1 fixture's Air Conditioner asset at BLR001 to exist")
+		self.assertTrue(
+			FIXTURE_CHILLER_ASSET, "Expected the Phase 1 fixture's Walk-in Chiller asset at BLR001 to exist"
+		)
 
 		program_name = frappe.db.get_value("CB PM Program", {"program_key": FIXTURE_AC_PROGRAM_KEY}, "name")
 		self.assertTrue(

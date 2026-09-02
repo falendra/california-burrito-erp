@@ -26,10 +26,34 @@ class TestApplicabilityHooks(IntegrationTestCase):
 		self.ac_program = program_name
 
 	def test_3_new_asset_auto_schedules_matching_program(self):
+		# A fresh, disposable, guaranteed-*active* Program -- not self.ac_program (the
+		# retired Phase 2 fixture, deliberately active=0 as of the demo-data sweep; see
+		# docs/ASSUMPTIONS.md category 4). schedule_new_asset() only matches active
+		# Programs, so this test must supply one of its own to actually exercise the
+		# hook, same pattern as test_new_asset_of_non_matching_type_gets_no_schedule's
+		# disposable asset type below.
+		test_asset_type = "Test Applicability Hook Type (test 3)"
+		if not frappe.db.exists("CB Asset Type", test_asset_type):
+			frappe.get_doc({"doctype": "CB Asset Type", "asset_type_name": test_asset_type, "active": 1}).insert()
+
+		program_key = f"{test_asset_type}|Test task (test 3)|Monthly"
+		program_name = frappe.db.get_value("CB PM Program", {"program_key": program_key}, "name")
+		if not program_name:
+			program_name = frappe.get_doc(
+				{
+					"doctype": "CB PM Program",
+					"program_name": "Test Applicability Hook Program (test 3)",
+					"asset_type": test_asset_type,
+					"task_description": "Test task (test 3)",
+					"frequency": "Monthly",
+					"active": 1,
+				}
+			).insert().name
+
 		new_asset = frappe.get_doc(
 			{
 				"doctype": "CB Asset",
-				"asset_type": "Air Conditioner",
+				"asset_type": test_asset_type,
 				"outlet": FIXTURE_OUTLET,
 				"status": "Active",
 			}
@@ -37,7 +61,7 @@ class TestApplicabilityHooks(IntegrationTestCase):
 
 		self.assertTrue(
 			frappe.db.exists(
-				"CB PM Schedule", {"pm_program": self.ac_program, "outlet": FIXTURE_OUTLET, "asset": new_asset}
+				"CB PM Schedule", {"pm_program": program_name, "outlet": FIXTURE_OUTLET, "asset": new_asset}
 			),
 			"Expected CB Asset.after_insert to auto-create a matching schedule",
 		)

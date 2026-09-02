@@ -6,10 +6,11 @@ the sole recurrence mechanism, and next_due is computed from the schedule's
 due_date, never from the actual completion date — that's what keeps the cadence
 fixed instead of drifting when an execution runs late.
 
-Runs against the Phase 1/2 fixture's Outlet (BLR001) and Air Conditioner asset
-(AST-00001), using the "Air Conditioner / Clean filter / Monthly" PM Program added
-for Phase 2, plus one test-only Technician. Each test uses its own due_date so the
-two tests don't share a schedule regardless of run order.
+Runs against the Phase 1/2 fixture's Outlet (BLR001) and its Air Conditioner asset
+(looked up by outlet + asset_type rather than a hardcoded docname), using the
+"Air Conditioner / Clean filter / Monthly" PM Program added for Phase 2, plus one
+test-only Technician. Each test uses its own due_date so the two tests don't share
+a schedule regardless of run order.
 """
 
 import frappe
@@ -19,7 +20,6 @@ from california_burrito.utils.schedule import ensure_schedule
 
 FIXTURE_ZONAL_OFFICE = "BLR Zonal Office"
 FIXTURE_OUTLET = "BLR001"
-FIXTURE_AC_ASSET = "AST-00001"
 FIXTURE_AC_PROGRAM_KEY = "Air Conditioner|Clean filter|Monthly"
 TEST_TECHNICIAN = "T-RECURRENCE-01"
 
@@ -33,6 +33,14 @@ class TestPMExecutionRecurrence(IntegrationTestCase):
 			program_name, "Expected the 'Air Conditioner / Clean filter / Monthly' PM Program fixture to exist"
 		)
 		self.program = program_name
+
+		# Looked up by (outlet, asset_type), not a hardcoded "AST-00001" docname -- see
+		# test_pm_schedule_applicability.py's test_1 for why a literal name here is
+		# order-dependent on the real import.
+		self.ac_asset = frappe.db.get_value(
+			"CB Asset", {"outlet": FIXTURE_OUTLET, "asset_type": "Air Conditioner"}, "name"
+		)
+		self.assertTrue(self.ac_asset, "Expected the Phase 1 fixture's Air Conditioner asset at BLR001 to exist")
 
 		if not frappe.db.exists("CB Technician", TEST_TECHNICIAN):
 			frappe.get_doc(
@@ -48,7 +56,7 @@ class TestPMExecutionRecurrence(IntegrationTestCase):
 		self.technician = TEST_TECHNICIAN
 
 	def _submit_execution(self, due_date, completed_on, result="Passed"):
-		schedule = ensure_schedule(self.program, FIXTURE_OUTLET, FIXTURE_AC_ASSET, due_date)
+		schedule = ensure_schedule(self.program, FIXTURE_OUTLET, self.ac_asset, due_date)
 		schedule_name = schedule if isinstance(schedule, str) else schedule.name
 		execution = frappe.get_doc(
 			{
@@ -72,7 +80,7 @@ class TestPMExecutionRecurrence(IntegrationTestCase):
 			{
 				"pm_program": self.program,
 				"outlet": FIXTURE_OUTLET,
-				"asset": FIXTURE_AC_ASSET,
+				"asset": self.ac_asset,
 				"due_date": "2026-02-01",
 			},
 			"name",
@@ -91,7 +99,7 @@ class TestPMExecutionRecurrence(IntegrationTestCase):
 				{
 					"pm_program": self.program,
 					"outlet": FIXTURE_OUTLET,
-					"asset": FIXTURE_AC_ASSET,
+					"asset": self.ac_asset,
 					"due_date": "2026-04-01",
 				},
 			),
@@ -103,7 +111,7 @@ class TestPMExecutionRecurrence(IntegrationTestCase):
 				{
 					"pm_program": self.program,
 					"outlet": FIXTURE_OUTLET,
-					"asset": FIXTURE_AC_ASSET,
+					"asset": self.ac_asset,
 					"due_date": "2026-04-08",
 				},
 			),

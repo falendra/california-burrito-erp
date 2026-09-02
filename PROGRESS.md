@@ -1254,6 +1254,130 @@ login, i.e. healthy). `docs/ASSUMPTIONS.md` not changed — this is the same
 established display-label pattern from Phase 6, not a new ambiguity call; the
 PM Schedule/Execution entry there was reviewed, not edited.
 
+## Pre-deploy: retire the fixture PM Program, and make all demo data reproducible
+
+Two related asks, folded into one effort per the request: retire the Phase 2
+fixture Program (it now looks like a near-duplicate of a real imported
+program), and stop the whole demo dataset (Phase 1 fixture, Phase 4 hero
+scenario, the manual chest-freezer ticket) from living only in disposable
+console scripts that get deleted after use.
+
+### 1. Fixture PM Program retirement
+Checked first, per the request: `dtnj60ort6` ("Air Conditioner - Clean Filter
+- Monthly") was still `active = 1` — no earlier pass had touched it. Confirmed
+via a fresh `frappe.get_all` sweep of all 27 `CB PM Program` rows that it and
+the real `8mmn5ndmm9` ("Air Conditioner - Clean Air Filters - Monthly") are
+the only pair with near-identical `program_name`s — not a wider pattern needing
+a broader fix. Set `active = 0` (this ended up happening via the new
+`seed_demo.py`'s own final step, see below, rather than a standalone
+`db.set_value` call — same effect, but now it's part of the reproducible
+script instead of a one-off).
+
+Confirmed no retroactive effect on existing records: `TKT-00001`,
+`AST-00003`'s `CB PM Schedule` (`Completed`) and `CB PM Execution`, and the
+`CB PM Schedule lmqq3epsqj` (the next-due schedule created by that failed
+execution) are all untouched — `active` is read only by
+`find_applicable_targets`/`schedule_new_asset`, which govern *future*
+schedule generation, never by anything that reads an existing Schedule,
+Execution, or Ticket. `bench run-tests` still 19/19 with the retirement in
+place (after the test fixes below).
+
+### 2. `california_burrito/utils/seed_demo.py` — the new reproducible seed script
+New file, committed, idempotent, callable via `bench execute
+california_burrito.utils.seed_demo.run`. Reproduces, in order: the Phase 1
+fixture (`BLR001`, its Air Conditioner + Walk-in Chiller assets), the Phase 4
+hero scenario (`BLR134`, its 3 assets, `DEMO-TECH-01`, a Failed execution
+producing the first `CB Ticket`), the manual chest-freezer-gasket ticket
+(the second `CB Ticket`, against real imported outlet `ADM`) — then, always
+as its final step, retires the fixture Program (`active = 0`).
+
+Same idempotency discipline as `import_data.py`: every insert checked against
+its natural key first (or, for `CB Ticket` — no natural key — against the
+exact outlet/asset/description combination) before creating anything.
+
+**Real deploy sequence, now formalized**: fresh site → install app →
+`import_data.run()` → `seed_demo.run()`. This is a deliberate *reversal* of
+this project's own actual history (the Phase 1/4 fixtures were originally
+created *before* the Phase 5 import ever ran) — chosen because the manual
+demo ticket needs real imported data to already exist (real outlet `ADM`,
+real "Chest Freezer" asset type, the real "ChestFreezer / Gasket Broken"
+taxonomy row) to reference, and there's no reason to import first. This
+reversal is exactly what exposed the two bugs below — neither would have
+surfaced by only re-testing against this project's one long-lived
+development site.
+
+**Bug found and fixed during verification**: the first version of
+`seed_hero_scenario`/`seed_phase1_fixture` included an explicit
+`ensure_schedule(program, outlet, asset, today())` safety net, for the edge
+case where the outlet's Air Conditioner asset already existed (e.g. from
+import's own synthesis) before `seed_demo.py` ever created the fixture
+Program, so the `after_insert` hook never had a chance to fire. Called
+unconditionally, this wasn't actually idempotent: `ensure_schedule` dedupes
+on `(program, outlet, asset, due_date)`, and `due_date` is `today()`, a
+different value every calendar day — so re-running the script on a later date
+silently created a fresh duplicate "Scheduled" row instead of recognizing the
+fixture as already seeded. Caught by re-running the fixed-looking script a
+second time on the live development site (created 2 stray rows, due
+2026-09-02, confirmed via `generation_key`) — not by code review. Fixed by
+guarding the safety net on "no schedule exists at all yet for this
+`(program, outlet, asset)`" rather than calling `ensure_schedule` every run;
+deleted the 2 stray rows and re-verified a clean re-run (533 → 533 schedules,
+no change).
+
+**End-to-end rehearsal on a genuinely fresh site** (not just re-running
+against the one long-lived dev site, which can't catch order-dependent bugs):
+created a throwaway `seedtest.localhost` in the same bench
+(`bench new-site` + `install-app california_burrito`), ran `import_data.run()`
+(counts matched Phase 5's original: 133 outlets, 41 technicians, 26 programs,
+391 spare parts, etc.), then `seed_demo.run()` — clean, no errors. Verified
+by hand: `BLR001`/`BLR134` outlets and their assets exist with correct
+models/install dates, the fixture Program exists and is `active = 0`,
+`DEMO-TECH-01` exists, both tickets exist with the auto-computed
+`suggested_spare_part`/`assigned_to` correctly populated, the failed-execution
+chain (schedule → Completed, next schedule, ticket, `generated_ticket`) is
+intact, and `get_link_title()` resolves cleanly on the fresh site's own
+asset/technician docnames. Re-ran `seed_demo.run()` a second time on this
+fresh site: identical row counts before and after (true no-op). Dropped
+`seedtest.localhost` after verification.
+
+**Second bug found by this same fresh-site rehearsal — 5 test files hardcoded
+hero/fixture asset docnames** (`AST-00001`, `AST-00002`, `AST-00003`,
+`AST-00007`) as module-level constants. These were correct by coincidence on
+this project's one development site, where the fixtures were created *before*
+the Phase 5 import ever ran, so they got the lowest naming-series numbers.
+Once the deploy sequence is formalized as import-then-seed (this task), the
+same fixture assets land on whatever numbers the real import didn't already
+use — confirmed on `seedtest.localhost` (BLR001's Air Conditioner came back as
+`AST-00112`, ADM's Chest Freezer as `AST-00002`, not `AST-00001`/`AST-00007`).
+11 of the 19 tests failed for exactly this reason (plus one, `test_3`, that
+legitimately changed behavior: it asserted the fixture Program auto-schedules
+a fresh asset, which is no longer true post-retirement by design). Fixed all
+5 files (`test_pm_schedule_applicability.py`, `test_pm_ticket_workflow.py`,
+`test_pm_execution_recurrence.py`, `test_spare_part_suggestion.py`,
+`test_applicability_hooks.py`) to resolve these assets by
+`(outlet, asset_type)` at test-run time instead of a hardcoded docname —
+matching the pattern `test_hero_scenario.py` and `test_technician_assignment.py`
+already used — and gave `test_3` its own fresh, disposable, guaranteed-active
+Program instead of depending on the now-retired fixture one. Re-ran the full
+suite on both `seedtest.localhost` (fresh) and `development.localhost`
+(long-lived): **19/19 on both**.
+
+### 3. `docs/ASSUMPTIONS.md` — updated category 4
+Added a reproducibility note at the top of the section (all of this data is
+now `seed_demo.py`-reproducible, not manually seeded through disposable
+scripts), a new bullet documenting the fixture Program's retirement and why,
+and softened the specific `AST-#####` docnames called out for the Phase 1/4/
+Phase-5-manual-ticket fixtures to "illustrative, not guaranteed" — the bug
+above proved they genuinely aren't stable across a fresh deploy.
+
+### Verification
+`bench migrate`: n/a (no schema change this pass — `seed_demo.py` is a plain
+utility module). Full suite: **19/19 on `development.localhost`**, and
+**19/19 on a from-scratch `seedtest.localhost`** taken through the real
+`import_data.run()` → `seed_demo.run()` sequence and then dropped. Fixture
+Program confirmed `active = 0` with zero effect on existing Schedule/
+Execution/Ticket records. `git status` confirmed unstaged throughout.
+
 ## Phase 7 — Deploy
 - [ ] Hosted on Frappe Cloud, demo login created
 - [ ] README written (what/why/cut/assumptions/AI usage/how to run)

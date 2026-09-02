@@ -4,9 +4,10 @@
 """Acceptance tests 6, 7, and 8 from docs/DocType_Spec.md.
 
 Test 6 (Failed execution -> Ticket, atomically) and 7 (duplicate submit rejected)
-run against the persistent Phase 1/2 fixture (BLR001, AST-00001, the AC/Clean-filter/
-Monthly Program), each with its own due_date. Test 8 (cross-outlet asset validation)
-needs a second outlet, so it creates one.
+run against the persistent Phase 1/2 fixture (BLR001's Air Conditioner asset,
+looked up by outlet + asset_type rather than a hardcoded docname, and the
+AC/Clean-filter/Monthly Program), each with its own due_date. Test 8 (cross-outlet
+asset validation) needs a second outlet, so it creates one.
 """
 
 import frappe
@@ -16,7 +17,6 @@ from california_burrito.utils.schedule import ensure_schedule
 
 FIXTURE_ZONAL_OFFICE = "BLR Zonal Office"
 FIXTURE_OUTLET = "BLR001"
-FIXTURE_AC_ASSET = "AST-00001"
 FIXTURE_AC_PROGRAM_KEY = "Air Conditioner|Clean filter|Monthly"
 TEST_TECHNICIAN = "T-TICKET-01"
 
@@ -30,6 +30,14 @@ class TestPMTicketWorkflow(IntegrationTestCase):
 			program_name, "Expected the 'Air Conditioner / Clean filter / Monthly' PM Program fixture to exist"
 		)
 		self.program = program_name
+
+		# Looked up by (outlet, asset_type), not a hardcoded "AST-00001" docname -- see
+		# test_pm_schedule_applicability.py's test_1 for why a literal name here is
+		# order-dependent on the real import.
+		self.ac_asset = frappe.db.get_value(
+			"CB Asset", {"outlet": FIXTURE_OUTLET, "asset_type": "Air Conditioner"}, "name"
+		)
+		self.assertTrue(self.ac_asset, "Expected the Phase 1 fixture's Air Conditioner asset at BLR001 to exist")
 
 		if not frappe.db.exists("CB Technician", TEST_TECHNICIAN):
 			frappe.get_doc(
@@ -45,7 +53,7 @@ class TestPMTicketWorkflow(IntegrationTestCase):
 		self.technician = TEST_TECHNICIAN
 
 	def _new_execution(self, due_date, completed_on, result):
-		schedule = ensure_schedule(self.program, FIXTURE_OUTLET, FIXTURE_AC_ASSET, due_date)
+		schedule = ensure_schedule(self.program, FIXTURE_OUTLET, self.ac_asset, due_date)
 		schedule_name = schedule if isinstance(schedule, str) else schedule.name
 		return schedule_name, frappe.get_doc(
 			{
@@ -73,7 +81,7 @@ class TestPMTicketWorkflow(IntegrationTestCase):
 				{
 					"pm_program": self.program,
 					"outlet": FIXTURE_OUTLET,
-					"asset": FIXTURE_AC_ASSET,
+					"asset": self.ac_asset,
 					"due_date": "2026-06-01",
 				},
 			),
@@ -83,7 +91,7 @@ class TestPMTicketWorkflow(IntegrationTestCase):
 
 		ticket = frappe.get_doc("CB Ticket", execution.generated_ticket)
 		self.assertEqual(ticket.outlet, FIXTURE_OUTLET)
-		self.assertEqual(ticket.asset, FIXTURE_AC_ASSET)
+		self.assertEqual(ticket.asset, self.ac_asset)
 		self.assertEqual(ticket.source_pm_execution, execution.name)
 		self.assertEqual(ticket.status, "Open")
 		self.assertTrue(ticket.ticket_taxonomy)
