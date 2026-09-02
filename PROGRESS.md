@@ -1092,6 +1092,168 @@ appropriate, not a bug. Flagging this distinction explicitly in case Falendra wa
 those cleaned up too. Verified all 6 fixed descriptions live via `frappe.get_meta()`
 (not just re-reading the JSON). Full suite: **15/15 still passing**.
 
+## Pre-Phase-7 audit and gap closure
+A full audit against actual requirements (not a general code review — a checklist
+against what PROGRESS.md/ASSUMPTIONS.md already claimed as "done") found 5 of 8
+items clean and 3 with genuine gaps, all documentation/coverage gaps rather than
+data-integrity or logic bugs. Closed all 3 before Phase 7.
+
+### 1. Technician assignment — the chain's fourth link, never built until now
+`CB Ticket.assigned_to` had zero suggestion logic — confirmed by grepping the whole
+codebase for `assigned_to` outside its index declaration. Implemented the simple,
+explicitly-scoped version, matching exactly the `suggested_spare_part` pattern:
+- **`california_burrito/utils/technician_assignment.py`** —
+  `suggest_assigned_technician(outlet_name)`: the first active `CB Technician`
+  (sorted by `name`/`employee_no` ascending — deterministic, no seniority meaning)
+  whose `zonal_office` matches the outlet's `zonal_office`. Returns `None` if the
+  outlet has no zonal office or no active technician covers it.
+- **`CB Ticket.validate()`** calls it via the same "relevant change" guard as
+  `suggested_spare_part`, keyed on `outlet` instead of `asset`/`ticket_taxonomy`:
+  recomputes only when the ticket is new or its outlet changes, so a manual
+  override survives an unrelated save (e.g. a status change) but refreshes when the
+  outlet does.
+- **No load balancing, no escalation, no `reports_to`-chain routing** — one
+  deterministic rule, matching what ASSIGNMENT.md's chosen direction actually
+  specifies ("technician assignment," not "a routing engine"). Logged as a
+  deliberate, permanent scope decision in `docs/ASSUMPTIONS.md` sections 2 and 3 —
+  full routing/load-balancing is explicitly deferred post-deployment, not a gap
+  nobody noticed.
+- **Demonstrated on `TKT-00002`**: `suggest_assigned_technician("ADM")` →
+  `10633` (Sonu Vishwakarma, NCR Zonal Office). A plain `.save()` correctly did
+  *not* backfill it (outlet hadn't "changed" —
+  the relevant-change guard is working exactly as designed), so backfilled directly
+  via `frappe.db.set_value`, the same approach used for the `taxonomy_label`/
+  `part_label` backfills. Confirmed: `TKT-00002.assigned_to = "10633"`,
+  `zonal_office` matches, `active = 1`.
+- **3 new tests** (`test_technician_assignment.py`): a ticket gets assigned to a
+  real technician at its outlet's zonal office; an outlet whose zonal office has no
+  active technician gets no suggestion (using a fresh, disposable zonal
+  office/outlet pair, guaranteed empty); a manual override survives an unrelated
+  save but refreshes when the outlet changes.
+
+### 2. Hero scenario — now a standing regression test, not just a one-off script
+`test_hero_scenario.py` reproduces the full narrative as one test: new outlet with
+3 assets (one matching type with active Programs, two disposable non-matching
+types with none) → confirms schedules exist for the matching asset and *not* the
+other two → executes one of the matching schedules as Failed → confirms atomically:
+schedule → `Completed`, next schedule created (computed via the real
+`next_due_date`, not hardcoded), Ticket created and correctly linked back via
+`source_pm_execution`. Uses fresh, disposable asset types (`Test Hero Freezer
+Type`, `Test Hero Fryer Type`) rather than reusing the real `Freezer`/`Fryer`
+types, specifically so the test stays correct regardless of how the real PM
+Program catalog grows — it asserts "at least one schedule" for the matching asset,
+never an exact count. Confirmed no test-data leakage (`T7HERO` outlet and both test
+asset types don't exist outside the test transaction).
+
+### 3. docs/ASSUMPTIONS.md — fixed the stale entry, added the missing one
+- **Stale, self-contradicting entry removed**: section 3 previously said the
+  spare-part suggestion was "not yet wired up at all... deferred" — written during
+  Phase 5, never updated after Post-Phase-6 actually built it, directly
+  contradicting section 2's own entry describing it as done. Rewritten to state
+  plainly what's actually cut (a scored/ranked *recommendation engine*, not the
+  simple text match itself, which is implemented as specified).
+- **Missing entry added**: technician assignment now has both a section 2 entry
+  (what was built, and why it was initially missed — a full audit caught it, not a
+  correctly-judged omission) and a section 3 entry (what's deliberately excluded:
+  load balancing, escalation, `reports_to`-chain routing — a separate, larger
+  feature, deferred post-deployment).
+
+### Verification
+Full suite re-run after all three fixes: **19/19 passing** (15 existing + 3
+technician-assignment + 1 hero-scenario). Site up, `bench start` stable throughout.
+
+### Audit items NOT touched (already clean, no action needed)
+For completeness — the other 5 audit items came back clean and needed no changes:
+all 8 numbered acceptance tests individually mapped to a real, passing test
+function; the full test suite matched its expected count; every PROGRESS.md
+checkbox from a completed phase was checked with no open questions; a direct
+query across all 11 doctypes found zero orphaned references, zero natural-key
+duplicates, and zero cross-outlet/asset-type-required inconsistencies; and git
+status was fully clean with every phase already committed.
+
+## Post-audit polish — readable labels for the remaining code-style autonames
+
+Same bug class as the earlier `taxonomy_label`/`part_label` fixes: a Link
+dropdown/field showing a raw autoname that isn't identifiable to a human picking
+manually. Two more genuine instances found and fixed, plus a full sweep across
+all 11 doctypes to confirm nothing else qualifies.
+
+### 1. CB Technician — `technician_label`
+`employee_no` (e.g. `1078`, `10978`) is meaningless on sight. Added a hidden
+`technician_label` `Data` field, computed in `before_save` as
+`f"{technician_name} ({job_title}, {zonal_office})"` (e.g. "Sonu Vishwakarma
+(Executive, NCR Zonal Office)"). Set `title_field`/`show_title_field_in_link`
+to it, same pattern as `taxonomy_label`/`part_label`. Widened `search_fields`
+to `employee_no,technician_name` so a name search now works, not just the
+employee number.
+
+- `bench migrate`: clean.
+- Backfilled all 42 existing rows via a temporary script
+  (`_backfill_technician_label.py`, deleted after use); 0 blanks remaining.
+- Verified via `get_link_title("CB Technician", ...)`:
+  `10633` → `"Sonu Vishwakarma (Executive, NCR Zonal Office)"`,
+  `1078` → `"Sanju V P (Maintenance Leader, Corporate Office)"`.
+- Re-confirmed `TKT-00002.assigned_to` (raw `"10633"`) still resolves to the
+  same descriptive label through the ticket's own Link field.
+
+### 2. CB Asset — `asset_label`
+`AST-#####` is a naming-series autoname with zero semantic content — the same
+bug pattern exactly. Added a hidden `asset_label` `Data` field, computed in
+`before_save` as `f"{asset_type} at {outlet}"`, with `f" ({model})"` appended
+when `model` is set (e.g. "Walk-in Chiller at BLR001 (2 Door Chiller
+Celfrost)"). No cross-doctype lookup needed: `asset_type` and `outlet` are
+both Links whose own autoname *is* their readable name/code
+(`field:asset_type_name`, `field:outlet_code`), so this is a plain
+concatenation of the two link values already on the doc. Set
+`title_field`/`show_title_field_in_link` accordingly; `search_fields =
+asset_type,outlet,model`.
+
+- `bench migrate`: clean.
+- Backfilled all 116 existing rows via a temporary script
+  (`_backfill_asset_label.py`, deleted after use); 0 blanks remaining.
+- Verified via `get_link_title("CB Asset", ...)`, e.g. `AST-00116` →
+  `"Walk-in Chiller at WST"`, `AST-00002` → `"Walk-in Chiller at BLR001 (2 Door
+  Chiller Celfrost)"`.
+- Re-confirmed real tickets' `asset` links still resolve correctly:
+  `TKT-00001` (`AST-00003`) → `"Air Conditioner at BLR134"`, `TKT-00002`
+  (`AST-00007`) → `"Chest Freezer at ADM"`.
+
+### 3. Full sweep across all 11 doctypes — classification
+| Doctype | Autoname | Verdict |
+|---|---|---|
+| CB Zonal Office | `field:zonal_office_name` | Fine — already the human name |
+| CB Outlet | `field:outlet_code` | Fine — a real business code, judged acceptable when this doctype was built |
+| CB Asset Type | `field:asset_type_name` | Fine — already the human name |
+| CB Technician | `field:employee_no` | **Fixed this turn** (`technician_label`) |
+| CB Asset | `AST-.#####` | **Fixed this turn** (`asset_label`) |
+| CB PM Program | `hash` | Already fixed (Phase 6): `title_field = program_name` |
+| CB Ticket Taxonomy | `hash` | Already fixed (post-Phase-6): `title_field = taxonomy_label` |
+| CB Spare Part | `field:part_code` | Already fixed (post-Phase-6): `title_field = part_label` |
+| CB Ticket | `TKT-.#####` | Fine, deliberately — sequential ticket numbers are the natural human-facing identifier for a ticketing system, unlike an asset ID or an employee number nobody recites verbally |
+| CB PM Schedule | `hash` | **Confirmed no change** — see below |
+| CB PM Execution | `hash` | **Confirmed no change** — see below |
+
+CB PM Schedule and CB PM Execution both use opaque `hash` autonames with no
+`title_field`, which is theoretically the same bug class. This was already an
+explicit, documented decision in `docs/ASSUMPTIONS.md` ("no single field reads
+as a genuine label for these two — a composite would be purely cosmetic, and
+for Execution it would need a live cross-doctype lookup rather than a
+concatenation of the doc's own fields"). Reviewed that reasoning again in light
+of this sweep and it still holds: unlike Technician/Asset/Spare
+Part/Taxonomy, neither of these two is something a person browses or picks
+from a dropdown by name — they're always reached by drilling in from a
+Program, Outlet, Asset, or Ticket, so the composite label would show up
+nowhere a human actually needs it. Flagged rather than fixed unprompted;
+user confirmed leaving both as-is — no label built for a problem that doesn't
+exist in how the app is used.
+
+### Verification
+`bench migrate`: clean for both fixes. Full suite: **19/19 passing**,
+unchanged. Site up (`GET /app/cb-asset` with the site's Host header → 301 to
+login, i.e. healthy). `docs/ASSUMPTIONS.md` not changed — this is the same
+established display-label pattern from Phase 6, not a new ambiguity call; the
+PM Schedule/Execution entry there was reviewed, not edited.
+
 ## Phase 7 — Deploy
 - [ ] Hosted on Frappe Cloud, demo login created
 - [ ] README written (what/why/cut/assumptions/AI usage/how to run)

@@ -146,6 +146,20 @@ here directly, not just narrated in `PROGRESS.md`.
   Celfrost"` — so created one new ticket (`TKT-00002`) against a real,
   Phase-5-synthesized Chest Freezer asset to demonstrate it working, rather than
   force TKT-00001 into a scenario it doesn't fit.
+- **Technician assignment — the chosen direction's fourth link, initially missed
+  entirely, then implemented as one deterministic rule.** ASSIGNMENT.md's chain
+  ("PM failure → ticket → spare-part suggestion → technician assignment") was
+  quoted in full when spare-part suggestion was built, but the assignment link
+  itself was left unaddressed until a full audit caught it — `CB Ticket.assigned_to`
+  had no suggestion logic at all, and nothing had flagged that as a deliberate cut.
+  Implemented to match the pattern of everything else here: `assigned_to`
+  auto-suggests the first active `CB Technician` (sorted by `employee_no`,
+  deterministic, no seniority meaning) whose `zonal_office` matches the ticket's
+  outlet's `zonal_office`; recomputed only when the ticket is new or its `outlet`
+  changes (same "relevant change" guard as `suggested_spare_part`, so a manual
+  override survives an unrelated save); editable, never enforced. See section 3 for
+  what this deliberately excludes (load balancing, escalation, the `reports_to`
+  chain).
 
 ## 3. Scope deliberately cut
 
@@ -159,9 +173,22 @@ authoritative version:
   "create next occurrence on submit," which needs no generator loop at all.
 - Manual-review workflow for unresolved frequencies — logged in the import summary,
   not modeled as a status.
-- Spare-part recommendation engine — simple text match + user confirmation only
-  (and, as of Phase 5, not yet wired up at all: `CB Ticket.suggested_spare_part`
-  isn't in the schema yet either, deferred alongside it).
+- Spare-part **recommendation engine** — a scored/ranked/learning system. What's
+  actually built (since the post-Phase-6 pass) is exactly the spec's own scope: a
+  simple text match on `CB Ticket.suggested_spare_part`, confirmed/overridden by the
+  user — see section 2 above for how it works and section 4 for what it's verified
+  against. Not cut; implemented as specified.
+- Technician **routing/load-balancing engine** — what's built (also post-Phase-6) is
+  one deterministic rule: `CB Ticket.assigned_to` auto-suggests the first active
+  `CB Technician` at the ticket's outlet's zonal office (see section 2 below). No
+  load balancing across technicians, no escalation, no use of the `reports_to`
+  chain to route work — ASSIGNMENT.md's own framing ("An outlet sits in a city; a
+  city has a zonal office; a zonal office has technicians with a reporting chain.
+  What can you do with that path?") gestures at richer possibilities than this;
+  a real routing engine (ticket load per technician, on-call schedules, skill
+  matching, escalation on SLA breach) is explicitly deferred to post-deployment,
+  not forgotten — it's a genuinely separate, larger feature, not a missing detail
+  of this one.
 - Any of: microservices, Kafka, Kubernetes, event sourcing, CQRS, custom
   RBAC/scheduler/admin UI.
 

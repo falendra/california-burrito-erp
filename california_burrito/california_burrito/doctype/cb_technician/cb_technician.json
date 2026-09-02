@@ -15,7 +15,8 @@
   "zonal_office",
   "reports_to",
   "user",
-  "active"
+  "active",
+  "technician_label"
  ],
  "fields": [
   {
@@ -94,11 +95,19 @@
    "in_standard_filter": 1,
    "label": "Active",
    "reqd": 1
+  },
+  {
+   "description": "Computed in before_save from technician_name, job_title, and zonal_office — employee_no alone isn't identifiable to someone picking manually. System-generated, not user-editable.",
+   "fieldname": "technician_label",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Technician Label",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-01 00:00:00.000000",
+ "modified": "2026-09-02 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "California Burrito",
  "name": "CB Technician",
@@ -117,7 +126,10 @@
    "write": 1
   }
  ],
+ "search_fields": "employee_no,technician_name",
+ "show_title_field_in_link": 1,
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "title_field": "technician_label"
 }

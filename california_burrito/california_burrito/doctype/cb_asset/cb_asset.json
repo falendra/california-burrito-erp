@@ -10,7 +10,8 @@
   "column_break_model_status",
   "model",
   "status",
-  "installation_date"
+  "installation_date",
+  "asset_label"
  ],
  "fields": [
   {
@@ -55,11 +56,19 @@
    "fieldname": "installation_date",
    "fieldtype": "Date",
    "label": "Installation Date"
+  },
+  {
+   "description": "Computed in before_save from asset_type, outlet, and model (when set) — the AST-##### autoname alone isn't identifiable to someone picking manually. System-generated, not user-editable.",
+   "fieldname": "asset_label",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Asset Label",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-01 00:00:00.000000",
+ "modified": "2026-09-02 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "California Burrito",
  "name": "CB Asset",
@@ -78,7 +87,10 @@
    "write": 1
   }
  ],
+ "search_fields": "asset_type,outlet,model",
+ "show_title_field_in_link": 1,
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "title_field": "asset_label"
 }

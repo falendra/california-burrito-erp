@@ -69,6 +69,7 @@
    "reqd": 1
   },
   {
+   "description": "Auto-suggested from the outlet's zonal office — confirm or pick a different technician.",
    "fieldname": "assigned_to",
    "fieldtype": "Link",
    "in_list_view": 1,
