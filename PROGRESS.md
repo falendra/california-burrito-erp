@@ -1556,6 +1556,61 @@ anywhere in its container. Followed with a zero-argument
 same site, then dropped it. Re-ran the suite on `development.localhost`
 afterward: still 19/19, no leftover API credentials.
 
+## Post-deploy-doc polish: `CB PM Program.program_name` now recomputes on every save
+
+Previously set once at creation (by `import_data.py`/`seed_demo.py`/manual
+entry) and then static — editing `frequency` or `task_description` afterward
+left a stale label. Added `before_save()` to `cb_pm_program.py`:
+`self.program_name = f"{self.asset_type or 'Outlet-level'} - {self.task_description}
+- {self.frequency}"`, matching the existing label convention, with an
+`"Outlet-level"` fallback for the blank-`asset_type` case (outlet-level
+programs).
+
+**Checked every place that touches `program_name` before making the change**
+(not just assumed it was safe): the only two places matching *by name* on a
+variable called `program_name` are actually reading the doc's real `name`
+(the hash autoname) via `frappe.db.get_value(..., "name")` into a
+confusingly-named local variable — completely unrelated to the `program_name`
+*field*, unaffected either way. The field itself is only ever *read* for
+display (the `Due and Overdue PM Schedules` report's `SELECT`, and the
+`title_field` config) — never matched or filtered on — so recomputing it
+changes what's shown, never what's found. Two places pass an initial
+`program_name` at document creation (`import_data.py`'s `import_pm_programs`,
+`seed_demo.py`'s `FIXTURE_PROGRAM` dict); both are now silently overwritten
+by `before_save` on insert, which is fine (nothing reads that pre-hook
+value), just noting it since those explicit strings are effectively dead
+code now.
+
+**Confirmed `before_save` runs before Frappe's own mandatory-field check** —
+`program_name` is `reqd: 1`, and by reading `frappe/model/document.py`
+directly: `run_before_save_methods()` (validate → before_save) executes
+before `_validate()` (which calls `_validate_mandatory()`) in both `insert()`
+and `_save()`. So a document with no `program_name` supplied at all still
+passes validation — `before_save` fills it in first.
+
+**Real side effect worth knowing, not a bug**: the two real outlet-level
+programs from the Phase 5 import (`"Monthly deep clean - full store -
+Monthly"`, `"Pest control - agency visit - Monthly"`) will read as
+`"Outlet-level - Monthly deep clean - full store - Monthly"` etc. the next
+time either is saved — exactly the fallback the change asked for, applied to
+real data for the first time. Similarly, the retired fixture program's label
+will normalize from `"...Clean Filter..."` (title-case, hand-typed in Phase
+2) to `"...Clean filter..."` (matching its actual `task_description`
+verbatim) the next time it's saved — it hasn't been touched yet since
+`seed_demo.py`'s own retirement step uses `frappe.db.set_value` directly
+(bypasses `before_save` entirely), so this is dormant until something
+actually calls `.save()` on that record.
+
+**Verified with real, committed writes** (not just in-session state that
+rolls back on exit): changed a real program's `frequency` to `Quarterly`,
+committed, confirmed the recomputed label via a *separate* `frappe.db.get_value`
+call and `get_link_title()` — both agreed. Reverted, committed again,
+confirmed the label came back byte-for-byte identical to the original via an
+`assert`. `CB PM Program` count unchanged (27) throughout — nothing else was
+touched. Full suite: **19/19**, run twice (once before this round of testing,
+once after). Local only, per instruction — the live Frappe Cloud site was
+not touched.
+
 ## Phase 7 — Deploy
 - [ ] Hosted on Frappe Cloud, demo login created
 - [ ] README written (what/why/cut/assumptions/AI usage/how to run)
